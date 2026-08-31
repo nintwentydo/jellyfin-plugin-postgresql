@@ -1,0 +1,20 @@
+---
+name: "PostgreSQL"
+guid: "7baa1c73-ffc3-4613-a173-51dbd085c4f5"
+version: "1.0.0.0"
+targetAbi: "12.0.0.0"
+framework: "net10.0"
+overview: "Run Jellyfin's database on PostgreSQL"
+description: >
+  Replaces Jellyfin's built-in SQLite database with PostgreSQL. Intended for
+  large libraries and multi-instance deployments where SQLite's single-writer
+  model is the bottleneck. Requires a fresh database; there is no in-place
+  migration from an existing SQLite library.
+category: "General"
+owner: "nintwentydo"
+artifacts:
+- "Jellyfin.Plugin.Postgresql.dll"
+- "Npgsql.dll"
+- "Npgsql.EntityFrameworkCore.PostgreSQL.dll"
+changelog: >
+  Initial release targeting Jellyfin 12.

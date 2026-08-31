@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>PostgreSQL</title>
+</head>
+<body>
+<div id="PostgresqlConfigPage" data-role="page" class="page type-interior pluginConfigurationPage">
+    <div data-role="content">
+        <div class="content-primary">
+            <h2>PostgreSQL</h2>
+
+            <p>
+                Jellyfin selects its database before plugins load, so this provider is not
+                configured from this page. Settings come from
+                <code>config/database.xml</code>, with environment variables as a fallback.
+            </p>
+
+            <h3>database.xml</h3>
+            <pre>&lt;?xml version="1.0" encoding="utf-8"?&gt;
+&lt;DatabaseConfigurationOptions&gt;
+  &lt;DatabaseType&gt;PLUGIN_PROVIDER&lt;/DatabaseType&gt;
+  &lt;CustomProviderOptions&gt;
+    &lt;PluginName&gt;PostgreSQL&lt;/PluginName&gt;
+    &lt;PluginAssembly&gt;Jellyfin.Plugin.Postgresql.dll&lt;/PluginAssembly&gt;
+    &lt;ConnectionString&gt;Host=db;Port=5432;Database=jellyfin;Username=jellyfin;Password=CHANGEME&lt;/ConnectionString&gt;
+  &lt;/CustomProviderOptions&gt;
+  &lt;LockingBehavior&gt;NoLock&lt;/LockingBehavior&gt;
+&lt;/DatabaseConfigurationOptions&gt;</pre>
+
+            <h3>Environment variables</h3>
+            <p>Used only when <code>ConnectionString</code> is empty.</p>
+            <ul>
+                <li><code>POSTGRES_HOST</code>, <code>POSTGRES_PORT</code>, <code>POSTGRES_DB</code></li>
+                <li><code>POSTGRES_USER</code>, <code>POSTGRES_PASSWORD</code></li>
+                <li><code>POSTGRES_SSLMODE</code>, <code>POSTGRES_TRUSTSERVERCERTIFICATE</code></li>
+                <li><code>POSTGRES_COMMAND_TIMEOUT</code></li>
+            </ul>
+
+            <p>
+                The PostgreSQL client tools (<code>pg_dump</code> and <code>psql</code>) must be on
+                <code>PATH</code>; Jellyfin backs the database up before applying schema migrations.
+            </p>
+        </div>
+    </div>
+</div>
+</body>
+</html>
