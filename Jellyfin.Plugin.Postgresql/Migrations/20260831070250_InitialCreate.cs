@@ -12,6 +12,36 @@ namespace Jellyfin.Plugin.Postgresql.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
+            // PostgreSQL ships no min/max aggregates for uuid, but Jellyfin groups alternate
+            // versions of an item with Min(e => e.Id) over Guid columns (BaseItemRepository).
+            // SQLite's min() is type-agnostic so upstream never notices. Defining the aggregates
+            // fixes every such query at once; uuids compare bytewise, matching SQLite's ordering.
+            // Guarded so a cluster that already defines them (or a future PostgreSQL that adds
+            // them natively) is left alone.
+            migrationBuilder.Sql("""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_proc
+                        WHERE proname = 'min' AND prokind = 'a' AND proargtypes[0] = 'uuid'::regtype)
+                    THEN
+                        CREATE FUNCTION public.uuid_smaller(uuid, uuid) RETURNS uuid
+                            LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT
+                            RETURN LEAST($1, $2);
+                        CREATE FUNCTION public.uuid_larger(uuid, uuid) RETURNS uuid
+                            LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT
+                            RETURN GREATEST($1, $2);
+                        CREATE AGGREGATE public.min(uuid) (
+                            SFUNC = public.uuid_smaller, STYPE = uuid,
+                            COMBINEFUNC = public.uuid_smaller, PARALLEL = SAFE, SORTOP = OPERATOR(<));
+                        CREATE AGGREGATE public.max(uuid) (
+                            SFUNC = public.uuid_larger, STYPE = uuid,
+                            COMBINEFUNC = public.uuid_larger, PARALLEL = SAFE, SORTOP = OPERATOR(>));
+                    END IF;
+                END
+                $$;
+                """);
+
             migrationBuilder.CreateTable(
                 name: "ActivityLogs",
                 columns: table => new
