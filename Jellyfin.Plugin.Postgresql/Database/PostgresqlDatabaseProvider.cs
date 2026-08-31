@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Database.Implementations;
@@ -174,11 +175,9 @@ public sealed partial class PostgresqlDatabaseProvider : IJellyfinDatabaseProvid
         ArgumentNullException.ThrowIfNull(dbContext);
         ArgumentNullException.ThrowIfNull(tableNames);
 
-        var quoted = new List<string>();
-        foreach (var tableName in tableNames)
-        {
-            quoted.Add($"\"{tableName.Replace("\"", "\"\"", StringComparison.Ordinal)}\"");
-        }
+        var quoted = tableNames
+            .Select(tableName => $"\"{tableName.Replace("\"", "\"\"", StringComparison.Ordinal)}\"")
+            .ToList();
 
         if (quoted.Count == 0)
         {

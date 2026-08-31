@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using Jellyfin.Database.Implementations;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Plugin.Postgresql.Database;
 using Microsoft.EntityFrameworkCore;
@@ -16,15 +17,15 @@ namespace Jellyfin.Plugin.Postgresql.Tests;
 /// </summary>
 public class PostgresqlMappingTests
 {
-    private static JellyfinDbContextFixture CreateContext()
-        => new(new PostgresqlDesignTimeJellyfinDbFactory().CreateDbContext([]));
+    private static JellyfinDbContext CreateContext()
+        => new PostgresqlDesignTimeJellyfinDbFactory().CreateDbContext([]);
 
     [Fact]
     public void EfFunctions_Like_is_translated_to_case_insensitive_ILIKE()
     {
-        using var fixture = CreateContext();
+        using var context = CreateContext();
 
-        var sql = fixture.Context.BaseItems
+        var sql = context.BaseItems
             .Where(e => EF.Functions.Like(e.OriginalTitle!, "%matrix%"))
             .ToQueryString();
 
@@ -36,11 +37,11 @@ public class PostgresqlMappingTests
     [Fact]
     public void String_columns_use_the_C_collation()
     {
-        using var fixture = CreateContext();
+        using var context = CreateContext();
 
         // Collation is a schema-shape annotation, so it lives on the design-time model; the
         // runtime model drops anything the query pipeline does not need.
-        var sortName = fixture.Context.GetService<IDesignTimeModel>().Model
+        var sortName = context.GetService<IDesignTimeModel>().Model
             .FindEntityType(typeof(BaseItemEntity))!
             .GetProperty(nameof(BaseItemEntity.SortName));
 
@@ -52,9 +53,9 @@ public class PostgresqlMappingTests
     [Fact]
     public void DateTime_columns_round_trip_as_utc()
     {
-        using var fixture = CreateContext();
+        using var context = CreateContext();
 
-        var dateCreated = fixture.Context.Model
+        var dateCreated = context.Model
             .FindEntityType(typeof(BaseItemEntity))!
             .GetProperty(nameof(BaseItemEntity.DateCreated));
 
@@ -70,9 +71,9 @@ public class PostgresqlMappingTests
     [Fact]
     public void Guid_columns_map_to_the_native_uuid_type()
     {
-        using var fixture = CreateContext();
+        using var context = CreateContext();
 
-        var id = fixture.Context.GetService<IDesignTimeModel>().Model
+        var id = context.GetService<IDesignTimeModel>().Model
             .FindEntityType(typeof(BaseItemEntity))!
             .GetProperty(nameof(BaseItemEntity.Id));
 

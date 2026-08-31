@@ -64,46 +64,37 @@ internal sealed class CaseInsensitiveLikeQueryTranslationPreprocessorFactory : I
     {
         public static readonly LikeToILikeRewriter Instance = new();
 
-        private static readonly MethodInfo? _like = typeof(DbFunctionsExtensions).GetMethod(
+        // The overloads are compile-time references (nameof + exact signatures), so GetMethod
+        // cannot return null; `!` beats a null-dance that would silently skip the rewrite.
+        private static readonly MethodInfo _like = typeof(DbFunctionsExtensions).GetMethod(
             nameof(DbFunctionsExtensions.Like),
-            [typeof(DbFunctions), typeof(string), typeof(string)]);
+            [typeof(DbFunctions), typeof(string), typeof(string)])!;
 
-        private static readonly MethodInfo? _likeWithEscape = typeof(DbFunctionsExtensions).GetMethod(
+        private static readonly MethodInfo _likeWithEscape = typeof(DbFunctionsExtensions).GetMethod(
             nameof(DbFunctionsExtensions.Like),
-            [typeof(DbFunctions), typeof(string), typeof(string), typeof(string)]);
+            [typeof(DbFunctions), typeof(string), typeof(string), typeof(string)])!;
 
-        private static readonly MethodInfo? _iLike = typeof(NpgsqlDbFunctionsExtensions).GetMethod(
+        private static readonly MethodInfo _iLike = typeof(NpgsqlDbFunctionsExtensions).GetMethod(
             nameof(NpgsqlDbFunctionsExtensions.ILike),
-            [typeof(DbFunctions), typeof(string), typeof(string)]);
+            [typeof(DbFunctions), typeof(string), typeof(string)])!;
 
-        private static readonly MethodInfo? _iLikeWithEscape = typeof(NpgsqlDbFunctionsExtensions).GetMethod(
+        private static readonly MethodInfo _iLikeWithEscape = typeof(NpgsqlDbFunctionsExtensions).GetMethod(
             nameof(NpgsqlDbFunctionsExtensions.ILike),
-            [typeof(DbFunctions), typeof(string), typeof(string), typeof(string)]);
+            [typeof(DbFunctions), typeof(string), typeof(string), typeof(string)])!;
 
         protected override Expression VisitMethodCall(MethodCallExpression node)
         {
-            var replacement = ResolveReplacement(node.Method);
-            if (replacement is null)
+            if (node.Method == _like)
             {
-                return base.VisitMethodCall(node);
+                return Expression.Call(_iLike, Visit(node.Arguments));
             }
 
-            return Expression.Call(replacement, Visit(node.Arguments));
-        }
-
-        private static MethodInfo? ResolveReplacement(MethodInfo method)
-        {
-            if (_like is not null && _iLike is not null && method == _like)
+            if (node.Method == _likeWithEscape)
             {
-                return _iLike;
+                return Expression.Call(_iLikeWithEscape, Visit(node.Arguments));
             }
 
-            if (_likeWithEscape is not null && _iLikeWithEscape is not null && method == _likeWithEscape)
-            {
-                return _iLikeWithEscape;
-            }
-
-            return null;
+            return base.VisitMethodCall(node);
         }
     }
 }
