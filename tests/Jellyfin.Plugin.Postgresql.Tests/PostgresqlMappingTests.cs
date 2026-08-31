@@ -6,6 +6,7 @@ using Jellyfin.Plugin.Postgresql.Database;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Update;
 using Xunit;
 
 namespace Jellyfin.Plugin.Postgresql.Tests;
@@ -66,6 +67,17 @@ public class PostgresqlMappingTests
 
         var converted = (DateTime)converter.ConvertFromProvider(new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Unspecified))!;
         Assert.Equal(DateTimeKind.Utc, converted.Kind);
+    }
+
+    [Fact]
+    public void UserData_inserts_go_through_the_upsert_generator()
+    {
+        using var context = CreateContext();
+
+        // Concurrent playback-progress saves race UserDataManager's check-then-insert; the
+        // upsert generator turns the losing INSERT into ON CONFLICT DO UPDATE instead of a
+        // PK_UserData violation that aborts playback.
+        Assert.IsType<PostgresqlUpdateSqlGenerator>(context.GetService<IUpdateSqlGenerator>());
     }
 
     [Fact]

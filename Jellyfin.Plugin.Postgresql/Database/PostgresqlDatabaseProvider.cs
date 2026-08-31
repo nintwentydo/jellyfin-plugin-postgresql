@@ -12,6 +12,7 @@ using MediaBrowser.Common.Configuration;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Query;
+using Microsoft.EntityFrameworkCore.Update;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 
@@ -59,7 +60,8 @@ public sealed partial class PostgresqlDatabaseProvider : IJellyfinDatabaseProvid
                 _connection.ToString(),
                 npgsqlOptions => npgsqlOptions.MigrationsAssembly(GetType().Assembly.FullName))
             .ReplaceService<IModelCustomizer, PostgresqlModelCustomizer>()
-            .ReplaceService<IQueryTranslationPreprocessorFactory, CaseInsensitiveLikeQueryTranslationPreprocessorFactory>();
+            .ReplaceService<IQueryTranslationPreprocessorFactory, CaseInsensitiveLikeQueryTranslationPreprocessorFactory>()
+            .ReplaceService<IUpdateSqlGenerator, PostgresqlUpdateSqlGenerator>();
     }
 
     /// <inheritdoc />
