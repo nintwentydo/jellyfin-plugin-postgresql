@@ -1,0 +1,61 @@
+name: '📦 Release Plugin'
+
+# Publishing a GitHub release builds the plugin zip with JPRM, attaches it (plus
+# an md5 the manifest needs) to the release, and regenerates manifest.json on
+# master from all published releases. Point Jellyfin at the raw URL of
+# manifest.json to install from this repository.
+#
+# Release process: bump version in build.yaml, commit, create a GitHub release
+# whose tag matches that version. The release notes become the changelog.
+
+on:
+  release:
+    types:
+      - released
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Build plugin zip
+        id: jprm
+        uses: oddstr13/jellyfin-plugin-repository-manager@9497a0a499416cc572ed2e07a391d9f943a37b4d # v1.1.1
+        with:
+          dotnet-target: "net10.0"
+
+      - name: Generate md5 checksum
+        run: |
+          zip="${{ steps.jprm.outputs.artifact }}"
+          md5sum "$zip" > "$zip.md5"
+
+      - name: Attach zip and checksum to the release
+        uses: softprops/action-gh-release@50195ba7f6f93d1ac97ba8332a178e008ad176aa
+        with:
+          fail_on_unmatched_files: true
+          tag_name: ${{ github.event.release.tag_name }}
+          files: |
+            ${{ steps.jprm.outputs.artifact }}
+            ${{ steps.jprm.outputs.artifact }}.md5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Regenerate manifest.json on master
+        uses: Kevinjil/jellyfin-plugin-repo-action@a7832ecc44c6b1a45d531970f6647b8682b005b8
+        with:
+          ignorePrereleases: true
+          githubToken: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          pagesBranch: master
+          pagesFile: manifest.json
