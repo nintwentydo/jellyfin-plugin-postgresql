@@ -73,14 +73,14 @@ internal static class PostgresqlConnectionSettings
             builder.Port = int.Parse(port, CultureInfo.InvariantCulture);
         }
 
+        // Npgsql 8 folded certificate trust into SslMode: Require encrypts without validating,
+        // VerifyCA and VerifyFull validate. There is no separate TrustServerCertificate any more.
         var sslMode = Environment.GetEnvironmentVariable("POSTGRES_SSLMODE");
         if (!string.IsNullOrWhiteSpace(sslMode))
         {
             builder.SslMode = Enum.Parse<SslMode>(sslMode, true);
         }
 
-        // Npgsql 8 folded certificate trust into SslMode: Require encrypts without validating,
-        // VerifyCA and VerifyFull validate. There is no separate TrustServerCertificate any more.
         var commandTimeout = Environment.GetEnvironmentVariable("POSTGRES_COMMAND_TIMEOUT");
         if (!string.IsNullOrWhiteSpace(commandTimeout))
         {

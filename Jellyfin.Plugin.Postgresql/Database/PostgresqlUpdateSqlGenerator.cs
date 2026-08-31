@@ -1,7 +1,7 @@
 // NpgsqlUpdateSqlGenerator lives in an .Internal namespace (EF1001), but it is also what Npgsql
 // itself registers as the IUpdateSqlGenerator, and deriving from it is the only way to add an
-// ON CONFLICT clause without reimplementing the whole generator. The base overload signatures
-// are pinned by the tests, which fail on any breaking change when the package is bumped.
+// ON CONFLICT clause without reimplementing the whole generator. If a package bump changes the
+// overridden signature the build fails; the registration itself is pinned by a test.
 #pragma warning disable EF1001
 
 using System;
@@ -47,14 +47,17 @@ internal sealed class PostgresqlUpdateSqlGenerator : NpgsqlUpdateSqlGenerator
         bool overridingSystemValue,
         out bool requiresTransaction)
     {
-        // The four-argument IUpdateSqlGenerator entry point delegates here in Npgsql's
-        // implementation, so overriding this overload covers every insert path.
+        // Npgsql's three-argument IUpdateSqlGenerator method delegates to this overload, so
+        // overriding it covers every insert path.
         var operations = command.ColumnModifications;
         var writeOperations = operations.Where(o => o.IsWrite).ToList();
         var updateOperations = writeOperations.Where(o => !o.IsKey).ToList();
 
+        // Fall back to the stock INSERT for store-generated columns too (none on UserData
+        // today): the base emits a RETURNING clause for them that this rewrite drops.
         if (!string.Equals(command.TableName, UserDataTable, StringComparison.Ordinal)
-            || updateOperations.Count == 0)
+            || updateOperations.Count == 0
+            || operations.Any(o => o.IsRead))
         {
             return base.AppendInsertOperation(commandStringBuilder, command, commandPosition, overridingSystemValue, out requiresTransaction);
         }

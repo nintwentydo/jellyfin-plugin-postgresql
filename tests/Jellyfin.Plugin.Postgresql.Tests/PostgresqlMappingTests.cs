@@ -12,9 +12,10 @@ using Xunit;
 namespace Jellyfin.Plugin.Postgresql.Tests;
 
 /// <summary>
-/// Guards the two behaviours that make PostgreSQL match SQLite. Both fail silently in production
-/// — wrong search results and wrong sort order rather than an exception — so they are worth
-/// asserting on. Everything here reads the model or the generated SQL; no server is contacted.
+/// Guards the behaviours that make PostgreSQL match SQLite. Most fail silently in production —
+/// wrong search results or sort order rather than an exception — so they are worth asserting on.
+/// Everything here reads the model, the generated SQL, or the registered services; no server is
+/// contacted.
 /// </summary>
 public class PostgresqlMappingTests
 {
