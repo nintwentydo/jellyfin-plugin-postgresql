@@ -202,7 +202,7 @@ public sealed partial class PostgresqlDatabaseProvider : IJellyfinDatabaseProvid
             "The PostgreSQL provider has not been initialised, so no connection is available.");
 
     private string GetBackupPath(string key)
-        => Path.Combine(_applicationPaths.DataPath, BackupFolderName, $"{key}_jellyfin.sql");
+        => Path.Join(_applicationPaths.DataPath, BackupFolderName, $"{key}_jellyfin.sql");
 
     private async Task RunPostgresToolAsync(
         string fileName,
