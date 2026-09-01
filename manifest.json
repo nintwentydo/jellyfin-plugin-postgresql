@@ -8,7 +8,15 @@
     "owner": "nintwentydo",
     "versions": [
       {
-        "changelog": "Initial release. Targets Jellyfin v12 (RC6).",
+        "changelog": "Adds prebuilt docker image with the plugin. Backup path construction hardened. Built against Jellyfin 12 RC7.",
+        "checksum": "272850edc0d07e28f6b5f782e41b4823",
+        "sourceUrl": "https://github.com/nintwentydo/jellyfin-plugin-postgresql/releases/download/1.1.0.0/postgresql_1.1.0.0.zip",
+        "targetAbi": "12.0.0.0",
+        "timestamp": "2026-09-01T04:29:48Z",
+        "version": "1.1.0.0"
+      },
+      {
+        "changelog": "Initial release. Targets Jellyfin v12 (RC6).\r\n\r\n> [!WARNING]\r\n> Highly experimental. Only built and tested against Jellyfin v12 RC6. Don't use this with data you can't afford to lose.",
         "checksum": "ea51b1951d0338589f2207768b02b170",
         "sourceUrl": "https://github.com/nintwentydo/jellyfin-plugin-postgresql/releases/download/v1.0.0.0/postgresql_1.0.0.0.zip",
         "targetAbi": "12.0.0.0",
