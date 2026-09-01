@@ -52,6 +52,15 @@ jobs:
       - name: Stage the plugin for the Docker image
         run: unzip -q "${{ steps.jprm.outputs.artifact }}" -d docker/plugin
 
+      - name: Resolve image tag
+        id: imgtag
+        run: |
+          plugin=$(sed -n 's/^version: *"\?\([^"]*\)"\?/\1/p' build.yaml)
+          jellyfin=$(sed -n 's/^ARG JELLYFIN_TAG=\(.*\)/\1/p' docker/Dockerfile | head -1)
+          test -n "$plugin" && test -n "$jellyfin"
+          echo "plugin=$plugin" >> "$GITHUB_OUTPUT"
+          echo "tag=${plugin}-jf${jellyfin}" >> "$GITHUB_OUTPUT"
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -72,8 +81,13 @@ jobs:
           file: docker/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
+          build-args: |
+            PLUGIN_VERSION=${{ steps.imgtag.outputs.plugin }}
+          # Compound tag is the canonical immutable one. A plain plugin version
+          # could not express the same plugin rebuilt against a newer Jellyfin,
+          # and targetAbi cannot either: every 12.0 RC reports 12.0.0.0.
           tags: |
-            ghcr.io/${{ github.repository_owner }}/jellyfin-postgres:${{ github.event.release.tag_name || github.ref_name }}
+            ghcr.io/${{ github.repository_owner }}/jellyfin-postgres:${{ steps.imgtag.outputs.tag }}
             ghcr.io/${{ github.repository_owner }}/jellyfin-postgres:latest
 
       - name: Regenerate manifest.json on master

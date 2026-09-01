@@ -24,6 +24,18 @@ RUN apt-get update \
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
+ARG JELLYFIN_TAG
+ARG PLUGIN_VERSION=0.0.0.0
+
+LABEL org.opencontainers.image.title="Jellyfin with PostgreSQL" \
+      org.opencontainers.image.description="Jellyfin with the PostgreSQL provider, pg_dump and psql preinstalled" \
+      org.opencontainers.image.source="https://github.com/nintwentydo/jellyfin-plugin-postgresql" \
+      org.opencontainers.image.url="https://github.com/nintwentydo/jellyfin-plugin-postgresql" \
+      org.opencontainers.image.documentation="https://github.com/nintwentydo/jellyfin-plugin-postgresql#readme" \
+      org.opencontainers.image.licenses="GPL-3.0-only" \
+      org.opencontainers.image.version="${PLUGIN_VERSION}" \
+      org.opencontainers.image.base.name="docker.io/jellyfin/jellyfin:${JELLYFIN_TAG}"
+
 COPY --chmod=0755 docker/plugin/ /opt/jellyfin-postgres/plugin/
 COPY --chmod=0644 docker/database.xml /opt/jellyfin-postgres/database.xml
 COPY --chmod=0755 docker/entrypoint.sh /entrypoint.sh

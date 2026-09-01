@@ -1,9 +1,9 @@
 # Jellyfin PostgreSQL Plugin
 
-Replace Jellyfin's database with PostgreSQL.
-
 > [!WARNING]
-> Highly experimental. Only built and tested against Jellyfin v12 RC7. Don't use this with data you can't afford to lose.
+> Highly experimental. Built and tested against Jellyfin v12 RC7. Don't run on production servers.
+
+Replace Jellyfin's database with PostgreSQL. Available as a plugin for manual install or pre-packaged jellyfin docker image.
 
 Inspired by [Jellyfin.Pgsql](https://github.com/JPVenson/Jellyfin.Pgsql), have followed their lead with `pg_dump` backup approach. And also credit to [canepan/jellyfin-plugin-mysql](https://github.com/canepan/jellyfin-plugin-mysql) for their use of `ReplaceService`, have used similar pattern to fix `ILIKE` and collation issues.
 
@@ -11,18 +11,29 @@ Important disclosure / prewarning, I'm pretty inexperienced with C# and .NET so 
 
 ## Requirements
 - Jellyfin 12 (RC7)
-- PostgreSQL 15+ (tested against 17)
-- `pg_dump` and `psql` on `PATH` (for Jellyfin to backup the database)
+- PostgreSQL 15+ (tested against 17 and 18)
+- `pg_dump` and `psql` on `PATH`, at a major version >= the server's (for Jellyfin to back the database up). Already present if you use the Docker image below
 
 Currently only works on a fresh install. Have not attempted an SQLite->PostgreSQL conversion. Jellyfin's migration routines have SQLite-specific stuff that fails on Postgres.
 
 ## Install
+
+### Docker
+Example compose stack: [docker/compose.example.yml](docker/compose.example.yml).
+
+`ghcr.io/nintwentydo/jellyfin-postgres` is the official Jellyfin image with the plugin, `pg_dump`, and `psql` baked in. On start it installs the plugin and seeds config file.
+
+Existing `database.xml` config is never overwritten, so swapping between manual installs and this image is safe.
+
+### Manual
 Plugin repo: `https://raw.githubusercontent.com/nintwentydo/jellyfin-plugin-postgresql/master/manifest.json`
 
-1. Add the plugin repo in the dashboard, or copy a release into `<config>/plugins/PostgreSQL/`
-2. Create a database and a role that owns it
-3. Add your config to `<config>/config/database.xml` (see example below)
+1. Create a database and a role that owns it
+2. Install the plugin, either from the repo above in the dashboard or by copying a release into `<config>/plugins/PostgreSQL/`
+3. Add your config to `<config>/config/database.xml` (see below)
 4. Start Jellyfin. Schema created on first run
+
+n.b. Jellyfin loads provider assembly during service registration, before the plugin system runs. So it won't boot unless the plugin is already on disk. If you want to install via the UI then you'll need to start on SQLite, install, write `database.xml`, then restart.
 
 ### Config example
 ```xml
