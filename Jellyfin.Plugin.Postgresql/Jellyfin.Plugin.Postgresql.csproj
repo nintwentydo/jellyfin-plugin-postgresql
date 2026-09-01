@@ -18,9 +18,9 @@
     build.yaml — a mismatch here surfaces as a model that does not match the running schema.
   -->
   <ItemGroup>
-    <PackageReference Include="Jellyfin.Controller" Version="12.0.0-rc6" PrivateAssets="all" />
-    <PackageReference Include="Jellyfin.Model" Version="12.0.0-rc6" PrivateAssets="all" />
-    <PackageReference Include="Jellyfin.Database.Implementations" Version="12.0.0-rc6" PrivateAssets="all" />
+    <PackageReference Include="Jellyfin.Controller" Version="12.0.0-rc7" PrivateAssets="all" />
+    <PackageReference Include="Jellyfin.Model" Version="12.0.0-rc7" PrivateAssets="all" />
+    <PackageReference Include="Jellyfin.Database.Implementations" Version="12.0.0-rc7" PrivateAssets="all" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.11" PrivateAssets="all" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.11" PrivateAssets="all" />
   </ItemGroup>

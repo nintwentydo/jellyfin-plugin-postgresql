@@ -19,8 +19,8 @@
     the tests have to ask for them directly. Keep the versions in step with the plugin's.
   -->
   <ItemGroup>
-    <PackageReference Include="Jellyfin.Controller" Version="12.0.0-rc6" />
-    <PackageReference Include="Jellyfin.Database.Implementations" Version="12.0.0-rc6" />
+    <PackageReference Include="Jellyfin.Controller" Version="12.0.0-rc7" />
+    <PackageReference Include="Jellyfin.Database.Implementations" Version="12.0.0-rc7" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.11" />
   </ItemGroup>
 

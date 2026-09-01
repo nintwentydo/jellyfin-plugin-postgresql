@@ -3,14 +3,14 @@
 Replace Jellyfin's database with PostgreSQL.
 
 > [!WARNING]
-> Highly experimental. Only built and tested against Jellyfin v12 RC6. Don't use this with data you can't afford to lose.
+> Highly experimental. Only built and tested against Jellyfin v12 RC7. Don't use this with data you can't afford to lose.
 
 Inspired by [Jellyfin.Pgsql](https://github.com/JPVenson/Jellyfin.Pgsql), have followed their lead with `pg_dump` backup approach. And also credit to [canepan/jellyfin-plugin-mysql](https://github.com/canepan/jellyfin-plugin-mysql) for their use of `ReplaceService`, have used similar pattern to fix `ILIKE` and collation issues.
 
 Important disclosure / prewarning, I'm pretty inexperienced with C# and .NET so using this as a learning exercise. Used Claude to give me a head start. And there'll probably be some breaking changes as I test this out more and get more confident. So far have tested against a ~13k-item library (scan, search, sort, playback, restart, backup), and sqlite-parity fixes pinned by tests.
 
 ## Requirements
-- Jellyfin 12 (RC6)
+- Jellyfin 12 (RC7)
 - PostgreSQL 15+ (tested against 17)
 - `pg_dump` and `psql` on `PATH` (for Jellyfin to backup the database)
 
