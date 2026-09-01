@@ -1,0 +1,41 @@
+# Example Jellyfin + PostgreSQL stack
+services:
+  postgres:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: jellyfin
+      POSTGRES_DB: jellyfin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U jellyfin -d jellyfin"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  jellyfin:
+    image: ghcr.io/nintwentydo/jellyfin-postgres:latest
+    restart: unless-stopped
+    ports:
+      - "8096:8096"
+    environment:
+      # Add Postgres connection string variables here
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: jellyfin
+      POSTGRES_USER: jellyfin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - config:/config
+      - cache:/cache
+      - /path/to/media:/data:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  config:
+  cache:

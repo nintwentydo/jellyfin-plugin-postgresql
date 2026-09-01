@@ -1,12 +1,7 @@
 name: '📦 Release Plugin'
 
-# Publishing a GitHub release builds the plugin zip with JPRM, attaches it (plus
-# an md5 the manifest needs) to the release, and regenerates manifest.json on
-# master from all published releases. Point Jellyfin at the raw URL of
-# manifest.json to install from this repository.
-#
-# Release process: bump version in build.yaml, commit, create a GitHub release
-# whose tag matches that version. The release notes become the changelog.
+# Process: bump version in build.yaml, commit, create github release with tag matching version
+# Builds the plugin with JPRM, attaches plugin and md5 to release, regenerates manifest.json, publishes docker package
 
 on:
   release:
@@ -16,6 +11,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   release:
@@ -50,6 +46,35 @@ jobs:
             ${{ steps.jprm.outputs.artifact }}.md5
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Reuses the zip JPRM just built, so build.yaml stays the only place that
+      # lists which assemblies ship.
+      - name: Stage the plugin for the Docker image
+        run: unzip -q "${{ steps.jprm.outputs.artifact }}" -d docker/plugin
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push the image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/jellyfin-postgres:${{ github.event.release.tag_name || github.ref_name }}
+            ghcr.io/${{ github.repository_owner }}/jellyfin-postgres:latest
 
       - name: Regenerate manifest.json on master
         uses: Kevinjil/jellyfin-plugin-repo-action@a7832ecc44c6b1a45d531970f6647b8682b005b8

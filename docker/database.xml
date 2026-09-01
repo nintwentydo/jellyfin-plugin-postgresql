@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Points Jellyfin as PostgreSQL provider. Seeded into <config>/database.xml
+  on first start. ConnectionString omitted, use POSTGRES_* env vars instead.
+-->
+<DatabaseConfigurationOptions>
+  <DatabaseType>PLUGIN_PROVIDER</DatabaseType>
+  <CustomProviderOptions>
+    <PluginName>PostgreSQL</PluginName>
+    <PluginAssembly>Jellyfin.Plugin.Postgresql.dll</PluginAssembly>
+  </CustomProviderOptions>
+  <LockingBehavior>NoLock</LockingBehavior>
+</DatabaseConfigurationOptions>
