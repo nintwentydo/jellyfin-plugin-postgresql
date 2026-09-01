@@ -17,4 +17,4 @@ artifacts:
 - "Npgsql.dll"
 - "Npgsql.EntityFrameworkCore.PostgreSQL.dll"
 changelog: >
-  Initial release targeting Jellyfin 12.
+  Add pre-built docker image. Bump jellyfin version to 12-rc7. Database provieder update.
