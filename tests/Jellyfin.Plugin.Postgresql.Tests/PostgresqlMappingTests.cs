@@ -53,6 +53,21 @@ public class PostgresqlMappingTests
     }
 
     [Fact]
+    public void Null_sort_placement_matches_sqlite()
+    {
+        using var context = CreateContext();
+
+        // SQLite sorts NULL before every value, PostgreSQL after it on ASC and before it on
+        // DESC, so without this an unrated item would top a rating-descending list instead of
+        // closing it.
+        var ascending = context.BaseItems.OrderBy(e => e.CommunityRating).ToQueryString();
+        var descending = context.BaseItems.OrderByDescending(e => e.CommunityRating).ToQueryString();
+
+        Assert.Contains("NULLS FIRST", ascending, StringComparison.Ordinal);
+        Assert.Contains("NULLS LAST", descending, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void DateTime_columns_round_trip_as_utc()
     {
         using var context = CreateContext();
