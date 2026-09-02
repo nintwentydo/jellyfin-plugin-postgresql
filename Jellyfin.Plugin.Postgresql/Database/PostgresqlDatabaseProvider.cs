@@ -61,6 +61,7 @@ public sealed partial class PostgresqlDatabaseProvider : IJellyfinDatabaseProvid
                 npgsqlOptions => npgsqlOptions.MigrationsAssembly(GetType().Assembly.FullName))
             .ReplaceService<IModelCustomizer, PostgresqlModelCustomizer>()
             .ReplaceService<IQueryTranslationPreprocessorFactory, CaseInsensitiveLikeQueryTranslationPreprocessorFactory>()
+            .AddInterceptors(new WriteSerialisingTransactionInterceptor())
             .ReplaceService<IUpdateSqlGenerator, PostgresqlUpdateSqlGenerator>();
     }
 
