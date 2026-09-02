@@ -10,6 +10,7 @@ using Jellyfin.Database.Implementations;
 using Jellyfin.Database.Implementations.DbConfiguration;
 using MediaBrowser.Common.Configuration;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Query;
 using Microsoft.EntityFrameworkCore.Update;
@@ -61,6 +62,9 @@ public sealed partial class PostgresqlDatabaseProvider : IJellyfinDatabaseProvid
                 npgsqlOptions => npgsqlOptions.MigrationsAssembly(GetType().Assembly.FullName))
             .ReplaceService<IQuerySqlGeneratorFactory, PostgresqlQuerySqlGeneratorFactory>()
             .ReplaceService<IModelCustomizer, PostgresqlModelCustomizer>()
+            // Core uses AsSplitQuery where it wants it and its own SQLite provider silences this
+            // advisory for the rest; without it PostgreSQL users get four warnings per start.
+            .ConfigureWarnings(warnings => warnings.Ignore(RelationalEventId.MultipleCollectionIncludeWarning))
             .ReplaceService<IQueryTranslationPreprocessorFactory, CaseInsensitiveLikeQueryTranslationPreprocessorFactory>()
             .AddInterceptors(new WriteSerialisingTransactionInterceptor())
             .ReplaceService<IUpdateSqlGenerator, PostgresqlUpdateSqlGenerator>();
@@ -92,10 +96,19 @@ public sealed partial class PostgresqlDatabaseProvider : IJellyfinDatabaseProvid
         await using (context.ConfigureAwait(false))
         {
             // Autovacuum handles reclamation; this refreshes planner statistics after a large
-            // library scan, which is when Jellyfin's query plans go stale.
-            await context.Database
-                .ExecuteSqlRawAsync("VACUUM ANALYZE", cancellationToken)
-                .ConfigureAwait(false);
+            // library scan, which is when Jellyfin's query plans go stale. Named tables only: a
+            // bare VACUUM also visits the shared catalogs, which only a superuser may vacuum, and
+            // PostgreSQL logs a warning for each one it skips.
+            var tables = context.Model.GetEntityTypes()
+                .Select(entityType => entityType.GetSchemaQualifiedTableName())
+                .OfType<string>()
+                .Distinct()
+                .Select(QuoteTable);
+            var sql = $"VACUUM ANALYZE {string.Join(", ", tables)}";
+
+#pragma warning disable EF1002 // Table names come from the EF model, not from user input.
+            await context.Database.ExecuteSqlRawAsync(sql, cancellationToken).ConfigureAwait(false);
+#pragma warning restore EF1002
         }
 
         LogOptimised();
@@ -179,9 +192,7 @@ public sealed partial class PostgresqlDatabaseProvider : IJellyfinDatabaseProvid
         ArgumentNullException.ThrowIfNull(dbContext);
         ArgumentNullException.ThrowIfNull(tableNames);
 
-        var quoted = tableNames
-            .Select(tableName => $"\"{tableName.Replace("\"", "\"\"", StringComparison.Ordinal)}\"")
-            .ToList();
+        var quoted = tableNames.Select(QuoteTable).ToList();
 
         if (quoted.Count == 0)
         {
@@ -198,6 +209,20 @@ public sealed partial class PostgresqlDatabaseProvider : IJellyfinDatabaseProvid
 
         LogPurged(quoted.Count);
     }
+
+    /// <summary>
+    /// Quotes a table name for raw SQL.
+    /// </summary>
+    /// <param name="tableName">A bare or schema-qualified table name from the EF model.</param>
+    /// <returns>The name with each dot-separated part double-quoted.</returns>
+    /// <remarks>
+    /// <c>BackupService</c> passes <c>GetSchemaQualifiedTableName()</c>, so a schema, should core
+    /// ever set one, arrives as one dotted string. Quoting the parts keeps the dot a separator.
+    /// </remarks>
+    internal static string QuoteTable(string tableName)
+        => string.Join('.', tableName
+            .Split('.', 2)
+            .Select(part => $"\"{part.Replace("\"", "\"\"", StringComparison.Ordinal)}\""));
 
     private NpgsqlConnectionStringBuilder RequireConnection()
         => _connection ?? throw new InvalidOperationException(
