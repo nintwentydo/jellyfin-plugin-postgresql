@@ -17,4 +17,4 @@ artifacts:
 - "Npgsql.dll"
 - "Npgsql.EntityFrameworkCore.PostgreSQL.dll"
 changelog: >
-  Write serialisation, ORDER BY null replacement, provider housekeeping
+  Write serialisation, ORDER BY null placement, provider housekeeping
