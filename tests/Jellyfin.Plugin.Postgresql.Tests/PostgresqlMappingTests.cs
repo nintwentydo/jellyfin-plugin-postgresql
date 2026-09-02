@@ -92,4 +92,14 @@ public class PostgresqlMappingTests
 
         Assert.Equal("uuid", id.GetColumnType());
     }
+
+    [Fact]
+    public void Table_names_are_quoted_per_schema_part()
+    {
+        // BackupService passes GetSchemaQualifiedTableName() to PurgeDatabase, so a schema, if
+        // core ever sets one, arrives as one dotted string. Quoted whole it would name a table
+        // called "jellyfin.BaseItems" and the restore would fail on the first TRUNCATE.
+        Assert.Equal("\"BaseItems\"", PostgresqlDatabaseProvider.QuoteTable("BaseItems"));
+        Assert.Equal("\"jellyfin\".\"BaseItems\"", PostgresqlDatabaseProvider.QuoteTable("jellyfin.BaseItems"));
+    }
 }
