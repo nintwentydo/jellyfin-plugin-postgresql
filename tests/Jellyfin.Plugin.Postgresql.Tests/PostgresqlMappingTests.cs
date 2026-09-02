@@ -82,6 +82,21 @@ public class PostgresqlMappingTests
     }
 
     [Fact]
+    public void Transactions_take_the_write_serialising_advisory_lock()
+    {
+        using var context = CreateContext();
+
+        // Parallel item saves race the read-then-insert in UpdateOrInsertItems; the interceptor
+        // queues write transactions behind one advisory lock so the loser waits instead of
+        // failing on IX_ItemValues_Type_Value.
+        var interceptors = context.GetService<IDbContextOptions>()
+            .FindExtension<CoreOptionsExtension>()!
+            .Interceptors!;
+
+        Assert.Contains(interceptors, interceptor => interceptor is WriteSerialisingTransactionInterceptor);
+    }
+
+    [Fact]
     public void Guid_columns_map_to_the_native_uuid_type()
     {
         using var context = CreateContext();
