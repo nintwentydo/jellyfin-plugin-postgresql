@@ -39,6 +39,14 @@ internal static class PostgresqlConnectionSettings
 
         builder.ApplicationName ??= BuildApplicationName();
 
+        // PostgreSQL JIT-compiles any plan estimated above 500k cost units. Jellyfin's
+        // folder-aware filters (IsPlayed, IsResumable) estimate in the millions for queries that
+        // return a dozen rows, because the planner prices a folder branch that never executes,
+        // so every Continue Watching load spent seconds in LLVM: 4.9 s measured against 47 ms
+        // with JIT off, on a 60k-item library. Sent as a connection default so a database.xml
+        // Options entry still overrides it.
+        builder.Options ??= "-c jit=off";
+
         return builder;
     }
 

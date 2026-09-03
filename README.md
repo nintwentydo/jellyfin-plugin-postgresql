@@ -65,6 +65,8 @@ Used when `ConnectionString` is absent/empty.
 
 Additional options can be passed as `CustomProviderOptions/Options` entries in `database.xml`. Refer to [Npgsql docs](https://www.npgsql.org/doc/connection-string-parameters.html).
 
+The plugin sends `Options=-c jit=off` by default. PostgreSQL's JIT compiles Jellyfin's larger queries for seconds at a time (a Continue Watching query that runs in 47 ms took 4.9 s with it on). Add your own `Options` entry to override.
+
 ## Building
 ```
 dotnet build

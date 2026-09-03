@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using Jellyfin.Database.Implementations;
+using Jellyfin.Database.Implementations.DbConfiguration;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Plugin.Postgresql.Database;
 using Microsoft.EntityFrameworkCore;
@@ -132,4 +133,30 @@ public class PostgresqlMappingTests
         Assert.Equal("\"BaseItems\"", PostgresqlDatabaseProvider.QuoteTable("BaseItems"));
         Assert.Equal("\"jellyfin\".\"BaseItems\"", PostgresqlDatabaseProvider.QuoteTable("jellyfin.BaseItems"));
     }
+
+    [Fact]
+    public void Connections_turn_jit_off_unless_database_xml_says_otherwise()
+    {
+        // PostgreSQL JITs any plan estimated above 500k cost units, and Jellyfin's folder-aware
+        // filters estimate in the millions for a dozen-row result: 4.9 s of LLVM per Continue
+        // Watching load against 47 ms with JIT off. It is a connection default, not a hard
+        // setting, so an Options entry in database.xml still wins.
+        Assert.Equal("-c jit=off", PostgresqlConnectionSettings.Resolve(Configure()).Options);
+
+        var overridden = Configure(new CustomDatabaseOption { Key = "Options", Value = "-c jit=on" });
+        Assert.Equal("-c jit=on", PostgresqlConnectionSettings.Resolve(overridden).Options);
+    }
+
+    private static DatabaseConfigurationOptions Configure(params CustomDatabaseOption[] options)
+        => new()
+        {
+            DatabaseType = "PLUGIN_PROVIDER",
+            CustomProviderOptions = new CustomDatabaseOptions
+            {
+                PluginName = "PostgreSQL",
+                PluginAssembly = "Jellyfin.Plugin.Postgresql.dll",
+                ConnectionString = "Host=db;Username=jellyfin;Password=secret",
+                Options = [.. options]
+            }
+        };
 }
