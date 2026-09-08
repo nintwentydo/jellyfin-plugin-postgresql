@@ -1,16 +1,16 @@
 # Jellyfin PostgreSQL Plugin
 
-> [!WARNING]
-> Highly experimental. Built and tested against Jellyfin v12 RC7. Don't run on production servers.
-
 Replace Jellyfin's database with PostgreSQL. Available as a plugin for manual install or pre-packaged jellyfin docker image.
+
+> [!WARNING]
+> New databases only, migrations from SQLite not currently implemented.
 
 Inspired by [Jellyfin.Pgsql](https://github.com/JPVenson/Jellyfin.Pgsql), have followed their lead with `pg_dump` backup approach. And also credit to [canepan/jellyfin-plugin-mysql](https://github.com/canepan/jellyfin-plugin-mysql) for their use of `ReplaceService`, have used similar pattern to fix `ILIKE` and collation issues.
 
-Important disclosure / prewarning, I'm pretty inexperienced with C# and .NET so using this as a learning exercise. Used Claude to give me a head start. And there'll probably be some breaking changes as I test this out more and get more confident. So far have tested against a ~13k-item library (scan, search, sort, playback, restart, backup), and sqlite-parity fixes pinned by tests.
+Important disclosure, using this as a learning exercise/hobby project. It's been running stable on a ~13k item library and tests implemented for sqlite parity.
 
 ## Requirements
-- Jellyfin 12 (RC7)
+- Jellyfin 12
 - PostgreSQL 15+ (tested against 17 and 18)
 - `pg_dump` and `psql` on `PATH`, at a major version >= the server's (for Jellyfin to back the database up). Already present if you use the Docker image below
 

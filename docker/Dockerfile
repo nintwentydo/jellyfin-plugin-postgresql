@@ -5,7 +5,7 @@
 #   docker build -f docker/Dockerfile -t jellyfin-postgres .
 #
 # JELLYFIN_TAG pinned to version used to compile plugin
-ARG JELLYFIN_TAG=12.0-rc7
+ARG JELLYFIN_TAG=12.0
 FROM jellyfin/jellyfin:${JELLYFIN_TAG}
 
 # add postgres client to jellyfin container

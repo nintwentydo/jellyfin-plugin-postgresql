@@ -18,16 +18,16 @@
     build.yaml — a mismatch here surfaces as a model that does not match the running schema.
   -->
   <ItemGroup>
-    <PackageReference Include="Jellyfin.Controller" Version="12.0.0-rc7" PrivateAssets="all" />
-    <PackageReference Include="Jellyfin.Model" Version="12.0.0-rc7" PrivateAssets="all" />
-    <PackageReference Include="Jellyfin.Database.Implementations" Version="12.0.0-rc7" PrivateAssets="all" />
+    <PackageReference Include="Jellyfin.Controller" Version="12.0.0" PrivateAssets="all" />
+    <PackageReference Include="Jellyfin.Model" Version="12.0.0" PrivateAssets="all" />
+    <PackageReference Include="Jellyfin.Database.Implementations" Version="12.0.0" PrivateAssets="all" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.11" PrivateAssets="all" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.11" PrivateAssets="all" />
   </ItemGroup>
 
   <!-- Shipped with the plugin: the server has no PostgreSQL driver of its own. -->
   <ItemGroup>
-    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.2" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
     <PackageReference Include="Npgsql" Version="10.0.3" />
   </ItemGroup>
 
