@@ -1,95 +1,43 @@
 # Jellyfin PostgreSQL Plugin
 
-Replace Jellyfin's database with PostgreSQL. Available as a plugin for manual install or pre-packaged jellyfin docker image.
+Plugin to replace Jellyfin's SQLite database with PostgreSQL. Install the plugin yourself or use the bundled Docker image, which includes Jellyfin, the plugin, and postgres tools.
 
-> [!WARNING]
-> New databases only, migrations from SQLite not currently implemented.
-
-Inspired by [Jellyfin.Pgsql](https://github.com/JPVenson/Jellyfin.Pgsql), have followed their lead with `pg_dump` backup approach. And also credit to [canepan/jellyfin-plugin-mysql](https://github.com/canepan/jellyfin-plugin-mysql) for their use of `ReplaceService`, have used similar pattern to fix `ILIKE` and collation issues.
-
-Important disclosure, using this as a learning exercise/hobby project. It's been running stable on a ~13k item library and tests implemented for sqlite parity.
+**Fresh installs only**. There is no SQLite migration tool implemented in this project and I don't know if I'll provide one. This is a hobby project.
 
 ## Requirements
 - Jellyfin 12
-- PostgreSQL 15+ (tested against 17 and 18)
-- `pg_dump` and `psql` on `PATH`, at a major version >= the server's (for Jellyfin to back the database up). Already present if you use the Docker image below
-
-Currently only works on a fresh install. Have not attempted an SQLite->PostgreSQL conversion. Jellyfin's migration routines have SQLite-specific stuff that fails on Postgres.
+- PostgreSQL 15 and above
+- `pg_dump` and `psql` on Jellyfin's `PATH` for migration backups (included in the Docker image)
 
 ## Install
 
 ### Docker
-Example compose stack: [docker/compose.example.yml](docker/compose.example.yml).
 
-`ghcr.io/nintwentydo/jellyfin-postgres` is the official Jellyfin image with the plugin, `pg_dump`, and `psql` baked in. On start it installs the plugin and seeds config file.
-
-Existing `database.xml` config is never overwritten, so swapping between manual installs and this image is safe.
+Use [the Docker setup guide](docs/docker.md) and [example Compose file](docker/compose.example.yml). Set a password, point the media mount at your library, then start the stack. The image installs the plugin and creates its configuration on first start.
 
 ### Manual
-Plugin repo: `https://raw.githubusercontent.com/nintwentydo/jellyfin-plugin-postgresql/master/manifest.json`
 
-1. Create a database and a role that owns it
-2. Install the plugin, either from the repo above in the dashboard or by copying a release into `<config>/plugins/PostgreSQL/`
-3. Add your config to `<config>/config/database.xml` (see below)
-4. Start Jellyfin. Schema created on first run
+1. Create an empty PostgreSQL database and a login role that owns it. For example, run as a PostgreSQL administrator:
 
-n.b. Jellyfin loads provider assembly during service registration, before the plugin system runs. So it won't boot unless the plugin is already on disk. If you want to install via the UI then you'll need to start on SQLite, install, write `database.xml`, then restart.
+   ```sql
+   CREATE ROLE jellyfin LOGIN PASSWORD 'replace-with-a-password';
+   CREATE DATABASE jellyfin OWNER jellyfin;
+   ```
 
-### Config example
-```xml
-<?xml version="1.0" encoding="utf-8"?>
-<DatabaseConfigurationOptions>
-  <DatabaseType>PLUGIN_PROVIDER</DatabaseType>
-  <CustomProviderOptions>
-    <PluginName>PostgreSQL</PluginName>
-    <PluginAssembly>Jellyfin.Plugin.Postgresql.dll</PluginAssembly>
-    <ConnectionString>Host=db;Port=5432;Database=jellyfin;Username=jellyfin;Password=CHANGEME</ConnectionString>
-  </CustomProviderOptions>
-  <LockingBehavior>NoLock</LockingBehavior>
-</DatabaseConfigurationOptions>
-```
-n.b. Keep `LockingBehavior` on `NoLock` for best performance
+2. Stop Jellyfin. Extract the matching [release ZIP](https://github.com/nintwentydo/jellyfin-plugin-postgresql/releases) into a `PostgreSQL` folder in Jellyfin's plugins directory.
+3. Save [the database configuration](docs/configuration.md#databasexml) as `database.xml` in Jellyfin's configuration directory. Set the connection details and install the client tools above.
+4. Start Jellyfin. It creates the schema automatically. Finish setup in the web interface.
 
-### Environment variables
-Used when `ConnectionString` is absent/empty.
+The plugin must be on disk before Jellyfin starts with PostgreSQL selected. To install through the dashboard instead, start a fresh instance on SQLite, add [this plugin repository](https://raw.githubusercontent.com/nintwentydo/jellyfin-plugin-postgresql/master/manifest.json), and install PostgreSQL. Then stop Jellyfin and follow steps 3–4. This does not migrate the SQLite database.
 
-| Environment variable | Default |
-| --- | --- |
-| `POSTGRES_HOST` | `localhost` |
-| `POSTGRES_PORT` | `5432` |
-| `POSTGRES_DB` | `jellyfin` |
-| `POSTGRES_USER` | `jellyfin` |
-| `POSTGRES_PASSWORD` | (required) |
-| `POSTGRES_SSLMODE` | `Prefer` |
-| `POSTGRES_COMMAND_TIMEOUT` | 30 |
+## Guides
 
-Additional options can be passed as `CustomProviderOptions/Options` entries in `database.xml`. Refer to [Npgsql docs](https://www.npgsql.org/doc/connection-string-parameters.html).
+- [Configuration](docs/configuration.md) — connection settings and environment variables.
+- [Operations](docs/operations.md) — backups, upgrades, and troubleshooting.
+- [Development](docs/development.md) — build, test, and release.
+- [Provider behaviour](docs/behaviour.md) — how the plugin adapts Jellyfin's queries.
+- [Performance](docs/postgres-tuning.md) — optional tuning.
 
-The plugin sends `Options=-c jit=off` by default. PostgreSQL's JIT compiles Jellyfin's larger queries for seconds at a time (a Continue Watching query that runs in 47 ms took 4.9 s with it on). Add your own `Options` entry to override.
+## Credits
 
-## Building
-```
-dotnet build
-dotnet test
-```
-
-Requires .NET 10 SDK. Releases ship only the assemblies listed in `build.yaml`. Rest of the build output is provided by the server at runtime.
-
-### Migrations
-```
-dotnet tool restore
-dotnet tool run dotnet-ef migrations add <Name> --project Jellyfin.Plugin.Postgresql --output-dir Migrations
-```
-
-## Implementation / extra notes
-Jellyfin's queries assume SQLite semantics, so a few things need to be fixed to work with Postgres.
-
-Concurrent playback-progress saves race in the server, which SQLite masks in-process but Postgres throws a duplicate key error. So `UserData` inserts are turned into upserts.
-
-`LIKE` queries are case-insensitive in sqlite, so get written to `ILIKE` for Postgres. e.g. searching "mean girl" misses "Mean Girls"
-
-Text compares byte-ordinally in sqlite, so `COLLATE "C"` on each string column in postgres. Prevents reshuffling `SortName` order and the A-Z bar.
-
-`min()` works on any type in sqlite, but `min(uuid)` fails in postgres, so migration defines min/max aggregates for `uuid`
-
-There will probably be more quirks that come out, but at least (so far) haven't had any noticeable problems.
+Inspired by [Jellyfin.Pgsql](https://github.com/JPVenson/Jellyfin.Pgsql)'s backup approach and [jellyfin-plugin-mysql](https://github.com/canepan/jellyfin-plugin-mysql)'s EF service replacements. See [LICENSE](LICENSE).

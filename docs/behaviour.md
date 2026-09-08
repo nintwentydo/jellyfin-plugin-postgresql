@@ -1,0 +1,35 @@
+# Provider behaviour
+
+[Back to README](../README.md)
+
+Jellyfin's queries assume SQLite behaviour. The plugin adapts the EF Core model and generated SQL for PostgreSQL; these changes apply automatically.
+
+## Query and storage changes
+
+| Area | What the plugin does |
+| --- | --- |
+| Search | Rewrites `EF.Functions.Like` to `ILIKE` so ASCII case differences do not hide results. |
+| Text ordering | Applies `COLLATE "C"` to string columns for bytewise ordering. |
+| Missing values | Adds `NULLS FIRST` for ascending sorts and `NULLS LAST` for descending sorts, matching SQLite. |
+| Dates | Converts dates to UTC on write and marks returned values as UTC. |
+| Item IDs | Uses native `uuid` columns. The initial migration supplies `min(uuid)` and `max(uuid)` aggregates for grouped item queries when needed. |
+| Playback state | Uses `ON CONFLICT DO UPDATE` for `UserData` inserts, avoiding duplicate-key failures from concurrent saves. Other tables retain normal insert behaviour. |
+
+The model and SQL customisations live in [Database/](../Jellyfin.Plugin.Postgresql/Database/). They aim to preserve Jellyfin's expected behaviour, not every SQLite/PostgreSQL edge case.
+
+## Transaction locking
+
+Each EF transaction takes `pg_advisory_xact_lock(hashtext('jellyfin'))`. Transactions queue until the previous holder commits or rolls back, preventing races when library saves check for a row and then insert it. Reads outside an explicit transaction do not acquire this lock.
+
+This deliberately serialises transactions, including read-only transactions used by built-in backups. It relies on PostgreSQL's default `READ COMMITTED` isolation. A transaction waiting for another connection's transaction can block itself; keep that in mind when changing database code. The lock does not by itself make sharing a database between Jellyfin servers supported.
+
+See [WriteSerialisingTransactionInterceptor.cs](../Jellyfin.Plugin.Postgresql/Database/WriteSerialisingTransactionInterceptor.cs).
+
+## Maintenance and performance
+
+- Connections default to `-c jit=off` to avoid compilation overhead on Jellyfin's large generated queries. [Custom connection options](configuration.md#additional-connection-options) can override this.
+- The database optimisation task runs `VACUUM ANALYZE` on the model's tables. PostgreSQL autovacuum remains responsible for routine maintenance.
+- Shutdown clears Npgsql's connection pools.
+- Migration backups use `pg_dump` and `psql`; see [operations](operations.md#jellyfins-backup-support).
+
+[The tests](../tests/Jellyfin.Plugin.Postgresql.Tests/PostgresqlMappingTests.cs) check model mappings, generated SQL, and service registration. They do not exercise live PostgreSQL queries or concurrent saves.
