@@ -80,4 +80,6 @@ The repository currently has one `InitialCreate` migration. Review generated cha
 
 The [release workflow](../.github/workflows/release.yaml) packages the plugin, attaches the ZIP and checksum, builds both Docker architectures, publishes versioned and `latest` image tags, and updates `manifest.json`. Pre-releases are excluded.
 
+Publication requires the existing test workflow to pass for the release commit and the tag to match `build.yaml` (an optional `v` prefix is accepted). Manual workflow runs must select that tag; branch runs fail before packaging or publication.
+
 Only the three DLLs listed in `build.yaml` are shipped. Jellyfin supplies the other runtime assemblies; do not distribute the entire build directory. For local image builds, see [Docker](docker.md#build-the-image).

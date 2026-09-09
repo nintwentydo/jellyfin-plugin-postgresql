@@ -10,15 +10,40 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 jobs:
+  tests:
+    uses: ./.github/workflows/test.yaml
+
   release:
+    needs: tests
+    permissions:
+      contents: write
+      packages: write
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Validate release and image tags
+        id: imgtag
+        run: |
+          case "$GITHUB_REF" in
+            refs/tags/*) release_tag=${GITHUB_REF#refs/tags/} ;;
+            *) echo "::error::Release workflows must run on a tag, including manual dispatches."; exit 1 ;;
+          esac
+          plugin=$(sed -nE 's/^version: *"?([0-9]+(\.[0-9]+){3})"?[[:space:]]*$/\1/p' build.yaml)
+          jellyfin=$(sed -n 's/^ARG JELLYFIN_TAG=\(.*\)/\1/p' docker/Dockerfile | head -1)
+          test -n "$plugin"
+          test -n "$jellyfin"
+          if [ "${release_tag#v}" != "$plugin" ]; then
+            echo "::error::Release tag must match the version in build.yaml (an optional v prefix is allowed)."
+            exit 1
+          fi
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+          echo "plugin=$plugin" >> "$GITHUB_OUTPUT"
+          echo "tag=${plugin}-jf${jellyfin}" >> "$GITHUB_OUTPUT"
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -40,7 +65,7 @@ jobs:
         uses: softprops/action-gh-release@50195ba7f6f93d1ac97ba8332a178e008ad176aa
         with:
           fail_on_unmatched_files: true
-          tag_name: ${{ github.event.release.tag_name }}
+          tag_name: ${{ steps.imgtag.outputs.release_tag }}
           files: |
             ${{ steps.jprm.outputs.artifact }}
             ${{ steps.jprm.outputs.artifact }}.md5
@@ -51,15 +76,6 @@ jobs:
       # lists which assemblies ship.
       - name: Stage the plugin for the Docker image
         run: unzip -q "${{ steps.jprm.outputs.artifact }}" -d docker/plugin
-
-      - name: Resolve image tag
-        id: imgtag
-        run: |
-          plugin=$(sed -n 's/^version: *"\?\([^"]*\)"\?/\1/p' build.yaml)
-          jellyfin=$(sed -n 's/^ARG JELLYFIN_TAG=\(.*\)/\1/p' docker/Dockerfile | head -1)
-          test -n "$plugin" && test -n "$jellyfin"
-          echo "plugin=$plugin" >> "$GITHUB_OUTPUT"
-          echo "tag=${plugin}-jf${jellyfin}" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
