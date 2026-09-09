@@ -36,6 +36,8 @@ docker compose start jellyfin
 
 Before schema migrations, the provider makes a temporary SQL dump in Jellyfin's data directory under `PostgresqlBackups/`. Jellyfin can request a restore if migration fails and deletion after success. Native SQL recovery runs `psql` in one transaction and stops on the first SQL error, so a failed restore rolls back its database changes. A missing required dump is reported as an error. These dumps are not scheduled backups.
 
+Install `pg_dump` and `psql` matching the database server's major version. A successful dump from a newer client does not establish that it can be restored to an older server. The provider checks the `pg_dump` major version before creating a migration backup and rejects a mismatch, allowing core to stop before migrating. The default Docker image bundles version 18; use the [matching `PG_MAJOR` build argument](docker.md#build-the-image) for older supported servers.
+
 Jellyfin's built-in ZIP backup uses a separate JSON database import path. PostgreSQL restore through that path remains unvalidated: core changes are needed for atomic import and provider-specific identity-sequence completion. Use a tested PostgreSQL dump plus the corresponding Jellyfin files for recovery until those changes are available and verified. The native SQL recovery tests do not establish built-in ZIP restore support.
 
 Built-in backup transactions hold the [transaction lock](behaviour.md#transaction-locking); schedule them during quiet periods. Native `pg_dump` does not acquire the provider's advisory lock.
@@ -63,7 +65,8 @@ PostgreSQL major upgrades need their own database upgrade procedure. Changing `p
 | Custom database plugin not found | Install the plugin before starting Jellyfin; check the directory, assembly name, and file permissions. |
 | Connection refused or authentication failed | Check PostgreSQL availability, host, port, role, and password. In Compose, use the service name `postgres`, not `localhost`. |
 | `Could not run 'pg_dump'` | Install PostgreSQL client tools on Jellyfin's `PATH`. |
-| `pg_dump` reports a server version mismatch | Update the client tools; they cannot be older than the server. |
+| `pg_dump` reports a server version mismatch | Install client tools matching the server's major version. Older clients cannot dump newer servers; newer-client dumps may not restore to older servers. |
+| `Migration recovery requires pg_dump major version ...` | Put the matching major version of `pg_dump` on Jellyfin's `PATH`, or rebuild the Docker image with the corresponding `PG_MAJOR`. Check `pg_dump --version` inside the Jellyfin environment. |
 | Entrypoint warns that `database.xml` is not `PLUGIN_PROVIDER` | An existing configuration was preserved. Review [Docker configuration](docker.md#configuration-and-storage). |
 | Slow home screen | Check whether custom connection `Options` removed `-c jit=off`; see [performance](postgres-tuning.md). |
 

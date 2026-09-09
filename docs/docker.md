@@ -25,7 +25,7 @@
 
 The example creates named volumes for PostgreSQL, Jellyfin configuration, and cache. Keep `.env` private and out of version control.
 
-To use an existing PostgreSQL server, remove the `postgres` service and Jellyfin's `depends_on` entry, then set Jellyfin's `POSTGRES_*` variables to that server's details. Create an empty database owned by the configured role first.
+To use an existing PostgreSQL server, remove the `postgres` service and Jellyfin's `depends_on` entry, then set Jellyfin's `POSTGRES_*` variables to that server's details. Create an empty database owned by the configured role first. The published image includes PostgreSQL 18 tools; for a PostgreSQL 15–17 server, build an image with the matching `PG_MAJOR` below so migration recovery uses compatible tools.
 
 ## Image versions
 
@@ -56,3 +56,11 @@ docker build -f docker/Dockerfile -t jellyfin-postgres .
 ```
 
 Build arguments are `JELLYFIN_TAG` (default `12.0`) and `PG_MAJOR` (default `18`). Match the Jellyfin tag to the plugin build and the client tools to your PostgreSQL server.
+
+For example, to use PostgreSQL 16:
+
+```sh
+docker build -f docker/Dockerfile --build-arg PG_MAJOR=16 -t jellyfin-postgres:pg16 .
+```
+
+Use that locally built image in Compose. A newer `pg_dump` can read an older server, but its output is not guaranteed to restore to that older version; migration recovery requires both directions. See the [PostgreSQL compatibility notes](https://www.postgresql.org/docs/18/app-pgdump.html).

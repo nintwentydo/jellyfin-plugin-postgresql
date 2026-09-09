@@ -37,3 +37,9 @@ ALTER ROLE jellyfin RESET work_mem;
 ```
 
 Restart Jellyfin again for the reset to take effect. If connection pressure is the issue, use `Maximum Pool Size` in [configuration](configuration.md#additional-connection-options). Leave autovacuum and durability settings enabled.
+
+## Prepared statements
+
+Npgsql automatic preparation is disabled by default. If repeated queries spend substantial time planning, try `Max Auto Prepare=16` with the default `Auto Prepare Min Usages=5` in [additional connection options](configuration.md#additional-connection-options), then compare the same workload after warm-up. Restart Jellyfin when applying or undoing the change; `Max Auto Prepare=0` disables it again.
+
+Prepared statements belong to each physical pooled connection. PostgreSQL can still choose a custom plan for every execution, so preparation does not necessarily remove planning costs. A bounded Jellyfin query replay found small movie-browse gains but little improvement for episode browsing or resume queries. Keep the default unless measurements show a useful benefit for your library and query mix. See [Npgsql preparation](https://www.npgsql.org/doc/prepare.html) and [PostgreSQL plan selection](https://www.postgresql.org/docs/18/sql-prepare.html).

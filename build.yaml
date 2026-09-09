@@ -18,6 +18,8 @@ artifacts:
 changelog: >
   Harden native PostgreSQL migration recovery with transactional restores,
   missing-backup errors and subprocess cancellation. Forward compatible TLS
-  settings to PostgreSQL client tools. Add PostgreSQL 18 integration coverage
-  for recovery, concurrent writes and SQLite-compatible date handling,
-  with tests aligned to Jellyfin 12.0.0.
+  settings to PostgreSQL client tools, require a matching pg_dump major version
+  before migration backups, and redact certificate passwords from logs.
+  Add PostgreSQL 15–18 integration coverage for verified TLS recovery,
+  concurrent writes and SQLite-compatible date handling, with tests aligned
+  to Jellyfin 12.0.0.

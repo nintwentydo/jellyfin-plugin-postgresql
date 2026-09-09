@@ -6,8 +6,8 @@ Plugin to replace Jellyfin's SQLite database with PostgreSQL. Install the plugin
 
 ## Requirements
 - Jellyfin 12
-- PostgreSQL 15 and above
-- `pg_dump` and `psql` on Jellyfin's `PATH` for migration backups (included in the Docker image)
+- PostgreSQL 15–18
+- `pg_dump` and `psql` matching the server's major version on Jellyfin's `PATH` for migration backup and recovery. The bundled Docker image includes version 18; [build with a matching `PG_MAJOR`](docs/docker.md#build-the-image) for an older server.
 
 ## Install
 

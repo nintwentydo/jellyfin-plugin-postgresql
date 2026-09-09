@@ -23,8 +23,8 @@ namespace Jellyfin.Plugin.Postgresql.Database;
 /// <para>
 /// Known costs: a full-system backup reads every table inside one transaction and holds the lock
 /// for the duration; and a nested transaction on a second pooled connection would wait on itself
-/// forever, which no core path does today. Should one appear, prepend
-/// <c>SET LOCAL lock_timeout = '...';</c> to the lock statement to turn the hang into an error.
+/// until command timeout or cancellation (indefinitely if both are disabled). No core path does
+/// this today; any future nested work must reuse the existing transaction.
 /// </para>
 /// </remarks>
 internal sealed class WriteSerialisingTransactionInterceptor : DbTransactionInterceptor

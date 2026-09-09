@@ -11,6 +11,15 @@ public class NativeToolEnvironmentCollection;
 [Collection("Native tool environment")]
 public class PostgresqlToolSettingsTests
 {
+    [Fact]
+    public void Tool_version_option_precedes_connection_arguments()
+    {
+        var connection = new NpgsqlConnectionStringBuilder { Host = "db", Username = "jellyfin" };
+        var startInfo = PostgresqlConnectionSettings.CreateToolStartInfo("pg_dump", ["--version"], connection);
+
+        Assert.Equal("--version", startInfo.ArgumentList[0]);
+    }
+
     [Theory]
     [InlineData(SslMode.Disable, "disable")]
     [InlineData(SslMode.Allow, "allow")]

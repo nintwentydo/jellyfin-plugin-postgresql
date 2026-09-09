@@ -40,7 +40,7 @@ internal static class PostgresqlConnectionSettings
 
         builder.ApplicationName ??= BuildApplicationName();
 
-        // PostgreSQL JIT-compiles any plan estimated above 500k cost units. Jellyfin's
+        // PostgreSQL JIT-compiles plans above the configured jit_above_cost. Jellyfin's
         // folder-aware filters (IsPlayed, IsResumable) estimate in the millions for queries that
         // return a dozen rows, because the planner prices a folder branch that never executes,
         // so every Continue Watching load spent seconds in LLVM: 4.9 s measured against 47 ms
@@ -52,7 +52,7 @@ internal static class PostgresqlConnectionSettings
     }
 
     /// <summary>
-    /// Returns the connection string with the password removed, for logging.
+    /// Returns the connection string with database and certificate passwords removed, for logging.
     /// </summary>
     /// <param name="builder">The connection to redact.</param>
     /// <returns>A connection string safe to write to the log.</returns>
@@ -62,7 +62,8 @@ internal static class PostgresqlConnectionSettings
 
         return new NpgsqlConnectionStringBuilder(builder.ToString())
         {
-            Password = null
+            Password = null,
+            SslPassword = null
         }.ToString();
     }
 
@@ -85,15 +86,17 @@ internal static class PostgresqlConnectionSettings
             RedirectStandardError = true,
             CreateNoWindow = true
         };
+        // PostgreSQL tools recognize --version only as their first argument.
+        foreach (var argument in arguments)
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
         startInfo.ArgumentList.Add($"--host={connection.Host}");
         startInfo.ArgumentList.Add($"--port={connection.Port.ToString(CultureInfo.InvariantCulture)}");
         startInfo.ArgumentList.Add($"--username={connection.Username}");
         startInfo.ArgumentList.Add($"--dbname={connection.Database}");
         startInfo.ArgumentList.Add("--no-password");
-        foreach (var argument in arguments)
-        {
-            startInfo.ArgumentList.Add(argument);
-        }
 
         startInfo.Environment["PGPASSWORD"] = connection.Password;
 

@@ -127,6 +127,23 @@ public sealed partial class PostgresqlDatabaseProvider : IJellyfinDatabaseProvid
     {
         cancellationToken.ThrowIfCancellationRequested();
         var connection = RequireConnection();
+
+        // A newer pg_dump can read an older server but emit SQL that cannot be restored to it.
+        // Reject that backup before core starts a migration that might need it for rollback.
+        var databaseConnection = new NpgsqlConnection(connection.ConnectionString);
+        await using (databaseConnection.ConfigureAwait(false))
+        {
+            await databaseConnection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            var serverMajor = databaseConnection.PostgreSqlVersion.Major.ToString(CultureInfo.InvariantCulture);
+            var dumpVersion = await RunPostgresToolAsync("pg_dump", ["--version"], connection, cancellationToken).ConfigureAwait(false);
+            if (!dumpVersion.StartsWith($"pg_dump (PostgreSQL) {serverMajor}.", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"Migration recovery requires pg_dump major version {serverMajor}, matching the PostgreSQL server. "
+                    + "Install the matching client tools on Jellyfin's PATH before retrying the migration.");
+            }
+        }
+
         var key = DateTime.UtcNow.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture);
         var backupFile = GetBackupPath(key);
 
@@ -233,7 +250,7 @@ public sealed partial class PostgresqlDatabaseProvider : IJellyfinDatabaseProvid
     private string GetBackupPath(string key)
         => Path.Join(_applicationPaths.DataPath, BackupFolderName, $"{key}_jellyfin.sql");
 
-    private async Task RunPostgresToolAsync(
+    private async Task<string> RunPostgresToolAsync(
         string fileName,
         IEnumerable<string> arguments,
         NpgsqlConnectionStringBuilder connection,
@@ -283,7 +300,7 @@ public sealed partial class PostgresqlDatabaseProvider : IJellyfinDatabaseProvid
             throw;
         }
 
-        await standardOutput.ConfigureAwait(false);
+        var output = await standardOutput.ConfigureAwait(false);
         var error = await standardError.ConfigureAwait(false);
 
         if (process.ExitCode != 0)
@@ -292,6 +309,8 @@ public sealed partial class PostgresqlDatabaseProvider : IJellyfinDatabaseProvid
 
             throw new InvalidOperationException($"{fileName} failed with exit code {process.ExitCode}: {error}");
         }
+
+        return output;
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "PostgreSQL connection: {ConnectionString}")]

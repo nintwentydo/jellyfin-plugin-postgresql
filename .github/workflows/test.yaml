@@ -28,13 +28,17 @@ jobs:
       - run: sh docker/test-entrypoint.sh
 
   postgres:
-    name: PostgreSQL 18 integration
+    name: PostgreSQL ${{ matrix.postgres }} integration with TLS
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: [15, 16, 17, 18]
     env:
       TZ: Australia/Melbourne
     services:
       postgres:
-        image: postgres:18
+        image: postgres:${{ matrix.postgres }}
         env:
           POSTGRES_PASSWORD: postgres
         ports:
@@ -49,7 +53,9 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
-      - name: Install PostgreSQL 18 client tools
+      - name: Install matching PostgreSQL client tools
+        env:
+          PG_MAJOR: ${{ matrix.postgres }}
         run: |
           sudo install -d /usr/share/postgresql-common/pgdg
           sudo curl --fail --silent --show-error \
@@ -58,8 +64,8 @@ jobs:
           echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" \
             | sudo tee /etc/apt/sources.list.d/pgdg.list
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends postgresql-client-18
-          echo "/usr/lib/postgresql/18/bin" >> "$GITHUB_PATH"
+          sudo apt-get install -y --no-install-recommends "postgresql-client-${PG_MAJOR}"
+          echo "/usr/lib/postgresql/${PG_MAJOR}/bin" >> "$GITHUB_PATH"
       - name: Create non-superuser test role
         env:
           PGHOST: 127.0.0.1
@@ -70,6 +76,8 @@ jobs:
         run: >-
           psql --no-psqlrc --set ON_ERROR_STOP=1
           --command "CREATE ROLE jellyfin_test WITH LOGIN CREATEDB NOSUPERUSER PASSWORD 'jellyfin_test';"
+      - name: Require verified TLS and client certificates
+        run: sh tests/setup-postgresql-tls.sh '${{ job.services.postgres.id }}' '${{ runner.temp }}/postgres-tls'
       - name: Check migration model
         run: |
           dotnet restore
@@ -77,5 +85,8 @@ jobs:
           dotnet tool run dotnet-ef migrations has-pending-model-changes --project Jellyfin.Plugin.Postgresql --configuration Release
       - name: Test against PostgreSQL
         env:
-          JELLYFIN_POSTGRES_TEST_CONNECTION: Host=127.0.0.1;Port=${{ job.services.postgres.ports[5432] }};Database=postgres;Username=jellyfin_test;Password=jellyfin_test
+          JELLYFIN_POSTGRES_TEST_CONNECTION: Host=localhost;Port=${{ job.services.postgres.ports[5432] }};Database=postgres;Username=jellyfin_test;Password=jellyfin_test;SSL Mode=VerifyFull;Root Certificate=${{ runner.temp }}/postgres-tls/ca.crt;SSL Certificate=${{ runner.temp }}/postgres-tls/client.pfx;SSL Password=test-client-key
+          JELLYFIN_POSTGRES_TEST_TLS_DIRECTORY: ${{ runner.temp }}/postgres-tls
+          PGSSLCERT: ${{ runner.temp }}/postgres-tls/client.crt
+          PGSSLKEY: ${{ runner.temp }}/postgres-tls/client.key
         run: dotnet test --configuration Release

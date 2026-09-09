@@ -9,7 +9,7 @@ ARG JELLYFIN_TAG=12.0
 FROM jellyfin/jellyfin:${JELLYFIN_TAG}
 
 # add postgres client to jellyfin container
-# make sure postgres client is >= major version used on the postgres container
+# Match the server major version so migration dumps can also be restored to it.
 ARG PG_MAJOR=18
 USER root
 RUN apt-get update \

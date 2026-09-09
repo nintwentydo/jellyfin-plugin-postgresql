@@ -16,7 +16,7 @@ Without `JELLYFIN_POSTGRES_TEST_CONNECTION`, the .NET tests inspect the EF model
 
 ### PostgreSQL integration tests
 
-Use a PostgreSQL 18 instance dedicated to testing and install PostgreSQL 18 client tools (`pg_dump` and `psql`) on the test process's `PATH`. The tests create and drop uniquely named databases; the supplied role needs `LOGIN` and `CREATEDB`, but does not need superuser access. Do not use a production server.
+Use a PostgreSQL 15–18 instance dedicated to testing and install matching-major client tools (`pg_dump` and `psql`) on the test process's `PATH`. The tests create and drop uniquely named databases; the supplied role needs `LOGIN` and `CREATEDB`, but does not need superuser access. Do not use a production server.
 
 For example, provision the test role through an administrator connection to the disposable instance:
 
@@ -34,7 +34,9 @@ dotnet test
 
 The non-UTC timezone exercises UTC, Local and Unspecified dates across summer and winter, including nullable/required columns and query parameters. An invalid supplied connection fails the integration tests instead of skipping them. The suite also checks overlapping UserData inserts, composite-key isolation, ordinary constraint failures, synchronous lock waiting, cancellation and native SQL backup/recovery. These tests use EF contexts directly; they do not start Jellyfin, prove cache/preference preservation in core save paths, or validate built-in ZIP restore. Verify startup, scans, and playback flows against a disposable Jellyfin/PostgreSQL installation before releasing provider changes.
 
-The [test workflow](../.github/workflows/test.yaml) retains the fast tests and entrypoint check, and adds a PostgreSQL 18 service with this restricted test role, matching client tools, and the pending-model check below.
+The [test workflow](../.github/workflows/test.yaml) runs a PostgreSQL 15, 16, 17 and 18 matrix with this restricted test role, matching client tools, and the pending-model check below. Each database requires verified TLS and a client certificate. Npgsql uses an encrypted PFX; `pg_dump` and `psql` use separate PEM certificate/key files. Tests cover successful native recovery and rejection of an untrusted CA, incorrect hostname and missing native client certificate.
+
+For the same certificate checks locally, [setup-postgresql-tls.sh](../tests/setup-postgresql-tls.sh) takes a disposable PostgreSQL container ID and a new certificate directory. It generates test certificates and replaces that container's authentication rules. Set the TLS connection string, `JELLYFIN_POSTGRES_TEST_TLS_DIRECTORY`, `PGSSLCERT` and `PGSSLKEY` as shown in the workflow before running `dotnet test`. Without the certificate directory variable, the additional TLS cases are skipped; ordinary database tests still run when their connection variable is supplied.
 
 ## Code map
 

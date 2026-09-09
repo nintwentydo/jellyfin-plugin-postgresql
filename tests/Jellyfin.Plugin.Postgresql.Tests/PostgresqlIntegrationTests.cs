@@ -1,6 +1,8 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Net;
+using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Database.Implementations;
@@ -405,11 +407,155 @@ public sealed class PostgresqlIntegrationTests(PostgresqlFixture database) : ICl
 
 public sealed class PostgresqlFactAttribute : FactAttribute
 {
-    public PostgresqlFactAttribute()
+    public PostgresqlFactAttribute(bool unixOnly = false)
     {
-        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(PostgresqlFixture.EnvironmentVariable)))
+        if (unixOnly && OperatingSystem.IsWindows())
+        {
+            Skip = "This test uses a POSIX executable fixture.";
+        }
+        else if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(PostgresqlFixture.EnvironmentVariable)))
         {
             Skip = $"Set {PostgresqlFixture.EnvironmentVariable} to a disposable PostgreSQL server with CREATEDB permission and pg_dump/psql on PATH.";
+        }
+    }
+}
+
+[Trait("Category", "PostgreSQL")]
+[Collection("Native tool environment")]
+public sealed class PostgresqlTlsIntegrationTests(PostgresqlFixture database) : IClassFixture<PostgresqlFixture>
+{
+    public const string CertificateDirectoryVariable = "JELLYFIN_POSTGRES_TEST_TLS_DIRECTORY";
+
+    [PostgresqlFact(unixOnly: true)]
+    public async Task Native_backup_rejects_wrong_or_unknown_tool_version_before_writing_a_dump()
+    {
+        var tools = Path.Join(Path.GetTempPath(), $"jellyfin test tools {Guid.NewGuid():N}");
+        Directory.CreateDirectory(tools);
+        var originalPath = Environment.GetEnvironmentVariable("PATH");
+        try
+        {
+            var script = Path.Join(tools, "pg_dump");
+            var marker = Path.Join(tools, "dump-invoked");
+            foreach (var output in new[] { "pg_dump (PostgreSQL) 99.0", "unexpected version output" })
+            {
+                await File.WriteAllTextAsync(script,
+                    $"#!/bin/sh\nif [ \"$1\" = --version ]; then printf '%s\\n' '{output}'; else touch '{marker}'; fi\n");
+                if (!OperatingSystem.IsWindows())
+                {
+                    File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                }
+
+                Environment.SetEnvironmentVariable("PATH", tools + Path.PathSeparator + originalPath);
+                var backupDirectory = Path.GetDirectoryName(database.BackupPath("unused"))!;
+                var before = Directory.Exists(backupDirectory) ? Directory.GetFiles(backupDirectory) : [];
+                var error = await Assert.ThrowsAsync<InvalidOperationException>(() => database.Provider.MigrationBackupFast(CancellationToken.None));
+                Assert.Contains("matching the PostgreSQL server", error.Message, StringComparison.Ordinal);
+                Assert.False(File.Exists(marker));
+                Assert.Equal(before, Directory.Exists(backupDirectory) ? Directory.GetFiles(backupDirectory) : []);
+            }
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PATH", originalPath);
+            Directory.Delete(tools, recursive: true);
+        }
+    }
+
+    [PostgresqlTlsFact]
+    public async Task Native_recovery_uses_verified_server_and_client_certificates()
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        Assert.Equal(SslMode.VerifyFull, new NpgsqlConnectionStringBuilder(database.ConnectionString).SslMode);
+        Assert.True(await database.ScalarAsync<bool>(
+            "SELECT ssl AND client_serial IS NOT NULL FROM pg_stat_ssl WHERE pid = pg_backend_pid()", deadline.Token));
+
+        await using var context = database.CreateContext();
+        var item = new BaseItemEntity { Id = Guid.NewGuid(), Type = "integration-tls-recovery" };
+        context.BaseItems.Add(item);
+        await context.SaveChangesAsync(deadline.Token);
+        var key = await database.Provider.MigrationBackupFast(deadline.Token);
+        try
+        {
+            await context.BaseItems.Where(row => row.Id == item.Id).ExecuteDeleteAsync(deadline.Token);
+            await database.Provider.RestoreBackupFast(key, deadline.Token);
+            Assert.True(await context.BaseItems.AnyAsync(row => row.Id == item.Id, deadline.Token));
+        }
+        finally
+        {
+            await database.Provider.DeleteBackup(key);
+        }
+    }
+
+    [PostgresqlTlsTheory]
+    [InlineData("untrusted-root")]
+    [InlineData("wrong-host")]
+    [InlineData("missing-client")]
+    public async Task Native_restore_rejects_invalid_tls_without_changing_data(string failure)
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var connection = new NpgsqlConnectionStringBuilder(database.ConnectionString);
+        var certificates = Environment.GetEnvironmentVariable(CertificateDirectoryVariable)!;
+        if (failure == "untrusted-root")
+        {
+            connection.RootCertificate = Path.Join(certificates, "untrusted.crt");
+        }
+        else if (failure == "wrong-host")
+        {
+            // The test certificate contains DNS names only; the same endpoint's IP must fail VerifyFull.
+            connection.Host = (await Dns.GetHostAddressesAsync(connection.Host!, deadline.Token))
+                .First(address => address.AddressFamily == AddressFamily.InterNetwork).ToString();
+        }
+
+        await using var context = database.CreateContext();
+        var item = new BaseItemEntity { Id = Guid.NewGuid(), Type = "integration-tls-rejection" };
+        context.BaseItems.Add(item);
+        await context.SaveChangesAsync(deadline.Token);
+        var history = (await context.Database.GetAppliedMigrationsAsync(deadline.Token)).ToArray();
+        var key = await database.Provider.MigrationBackupFast(deadline.Token);
+        var certificate = Environment.GetEnvironmentVariable("PGSSLCERT");
+        var privateKey = Environment.GetEnvironmentVariable("PGSSLKEY");
+        try
+        {
+            if (failure == "missing-client")
+            {
+                // libpq treats a missing default PEM as no client certificate. Npgsql keeps its PFX.
+                Environment.SetEnvironmentVariable("PGSSLCERT", Path.Join(certificates, "absent.crt"));
+                Environment.SetEnvironmentVariable("PGSSLKEY", Path.Join(certificates, "absent.key"));
+            }
+
+            var provider = database.CreateProvider(connection).Provider;
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => provider.RestoreBackupFast(key, deadline.Token));
+            Assert.Contains("certificate", error.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(history, await context.Database.GetAppliedMigrationsAsync(deadline.Token));
+            Assert.True(await context.BaseItems.AnyAsync(row => row.Id == item.Id, deadline.Token));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PGSSLCERT", certificate);
+            Environment.SetEnvironmentVariable("PGSSLKEY", privateKey);
+            await database.Provider.DeleteBackup(key);
+        }
+    }
+}
+
+public sealed class PostgresqlTlsFactAttribute : FactAttribute
+{
+    public PostgresqlTlsFactAttribute()
+    {
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(PostgresqlTlsIntegrationTests.CertificateDirectoryVariable)))
+        {
+            Skip = "Run tests/setup-postgresql-tls.sh and set JELLYFIN_POSTGRES_TEST_TLS_DIRECTORY to enable TLS recovery tests.";
+        }
+    }
+}
+
+public sealed class PostgresqlTlsTheoryAttribute : TheoryAttribute
+{
+    public PostgresqlTlsTheoryAttribute()
+    {
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(PostgresqlTlsIntegrationTests.CertificateDirectoryVariable)))
+        {
+            Skip = "Run tests/setup-postgresql-tls.sh and set JELLYFIN_POSTGRES_TEST_TLS_DIRECTORY to enable TLS recovery tests.";
         }
     }
 }
@@ -425,6 +571,8 @@ public sealed class PostgresqlFixture : IAsyncLifetime
     private bool _createdDatabase;
 
     public PostgresqlDatabaseProvider Provider { get; private set; } = null!;
+
+    public string ConnectionString => _testConnection!;
 
     public async Task InitializeAsync()
     {
@@ -448,19 +596,7 @@ public sealed class PostgresqlFixture : IAsyncLifetime
 
             connection.Database = _databaseName;
             _testConnection = connection.ConnectionString;
-            Provider = new PostgresqlDatabaseProvider(new TestApplicationPaths(_dataPath), NullLogger<PostgresqlDatabaseProvider>.Instance);
-            var options = new DbContextOptionsBuilder<JellyfinDbContext>();
-            Provider.Initialise(options, new DatabaseConfigurationOptions
-            {
-                DatabaseType = "PLUGIN_PROVIDER",
-                CustomProviderOptions = new CustomDatabaseOptions
-                {
-                    PluginName = "PostgreSQL",
-                    PluginAssembly = "Jellyfin.Plugin.Postgresql.dll",
-                    ConnectionString = _testConnection
-                }
-            });
-            _options = options.Options;
+            (Provider, _options) = CreateProvider(connection);
             await using var context = CreateContext();
             await context.Database.MigrateAsync();
             Assert.Empty(await context.Database.GetPendingMigrationsAsync());
@@ -475,6 +611,23 @@ public sealed class PostgresqlFixture : IAsyncLifetime
     public JellyfinDbContext CreateContext() => new(
         _options!, NullLogger<JellyfinDbContext>.Instance, Provider,
         new NoLockBehavior(NullLogger<NoLockBehavior>.Instance));
+
+    public (PostgresqlDatabaseProvider Provider, DbContextOptions<JellyfinDbContext> Options) CreateProvider(NpgsqlConnectionStringBuilder connection)
+    {
+        var provider = new PostgresqlDatabaseProvider(new TestApplicationPaths(_dataPath), NullLogger<PostgresqlDatabaseProvider>.Instance);
+        var options = new DbContextOptionsBuilder<JellyfinDbContext>();
+        provider.Initialise(options, new DatabaseConfigurationOptions
+        {
+            DatabaseType = "PLUGIN_PROVIDER",
+            CustomProviderOptions = new CustomDatabaseOptions
+            {
+                PluginName = "PostgreSQL",
+                PluginAssembly = "Jellyfin.Plugin.Postgresql.dll",
+                ConnectionString = connection.ConnectionString
+            }
+        });
+        return (provider, options.Options);
+    }
 
     public string BackupPath(string key) => Path.Join(_dataPath, "PostgresqlBackups", $"{key}_jellyfin.sql");
 

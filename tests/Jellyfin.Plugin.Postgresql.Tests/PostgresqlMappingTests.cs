@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Update;
+using Npgsql;
 using Xunit;
 
 namespace Jellyfin.Plugin.Postgresql.Tests;
@@ -91,9 +92,8 @@ public class PostgresqlMappingTests
     {
         using var context = CreateContext();
 
-        // Concurrent playback-progress saves race UserDataManager's check-then-insert; the
-        // upsert generator turns the losing INSERT into ON CONFLICT DO UPDATE instead of a
-        // PK_UserData violation that aborts playback.
+        // Ordinary UserDataManager inserts are serialized by the transaction lock. Keep the
+        // upsert registered for insert callers outside that read-then-write transaction scope.
         Assert.IsType<PostgresqlUpdateSqlGenerator>(context.GetService<IUpdateSqlGenerator>());
     }
 
@@ -137,7 +137,7 @@ public class PostgresqlMappingTests
     [Fact]
     public void Connections_turn_jit_off_unless_database_xml_says_otherwise()
     {
-        // PostgreSQL JITs any plan estimated above 500k cost units, and Jellyfin's folder-aware
+        // PostgreSQL JITs plans above jit_above_cost, and Jellyfin's folder-aware
         // filters estimate in the millions for a dozen-row result: 4.9 s of LLVM per Continue
         // Watching load against 47 ms with JIT off. It is a connection default, not a hard
         // setting, so an Options entry in database.xml still wins.
@@ -145,6 +145,29 @@ public class PostgresqlMappingTests
 
         var overridden = Configure(new CustomDatabaseOption { Key = "Options", Value = "-c jit=on" });
         Assert.Equal("-c jit=on", PostgresqlConnectionSettings.Resolve(overridden).Options);
+    }
+
+    [Fact]
+    public void Logged_connections_remove_database_and_certificate_passwords_without_changing_the_connection()
+    {
+        var connection = new NpgsqlConnectionStringBuilder
+        {
+            Host = "db",
+            Username = "jellyfin",
+            Password = "database-test-secret",
+            SslPassword = "certificate-test-secret",
+            SslMode = SslMode.VerifyFull
+        };
+
+        var redacted = new NpgsqlConnectionStringBuilder(PostgresqlConnectionSettings.Redact(connection));
+
+        Assert.False(redacted.ShouldSerialize("Password"));
+        Assert.False(redacted.ShouldSerialize("SSL Password"));
+        Assert.Equal(connection.Host, redacted.Host);
+        Assert.Equal(connection.Username, redacted.Username);
+        Assert.Equal(connection.SslMode, redacted.SslMode);
+        Assert.Equal("database-test-secret", connection.Password);
+        Assert.Equal("certificate-test-secret", connection.SslPassword);
     }
 
     private static DatabaseConfigurationOptions Configure(params CustomDatabaseOption[] options)
