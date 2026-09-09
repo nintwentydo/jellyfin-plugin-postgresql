@@ -25,3 +25,55 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: sh docker/test-entrypoint.sh
+
+  postgres:
+    name: PostgreSQL 18 integration
+    runs-on: ubuntu-24.04
+    env:
+      TZ: Australia/Melbourne
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Install PostgreSQL 18 client tools
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl --fail --silent --show-error \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+            -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client-18
+          echo "/usr/lib/postgresql/18/bin" >> "$GITHUB_PATH"
+      - name: Create non-superuser test role
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: ${{ job.services.postgres.ports[5432] }}
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          PGDATABASE: postgres
+        run: >-
+          psql --no-psqlrc --set ON_ERROR_STOP=1
+          --command "CREATE ROLE jellyfin_test WITH LOGIN CREATEDB NOSUPERUSER PASSWORD 'jellyfin_test';"
+      - name: Check migration model
+        run: |
+          dotnet tool restore
+          dotnet tool run dotnet-ef migrations has-pending-model-changes --project Jellyfin.Plugin.Postgresql --configuration Release
+      - name: Test against PostgreSQL
+        env:
+          JELLYFIN_POSTGRES_TEST_CONNECTION: Host=127.0.0.1;Port=${{ job.services.postgres.ports[5432] }};Database=postgres;Username=jellyfin_test;Password=jellyfin_test
+        run: dotnet test --configuration Release

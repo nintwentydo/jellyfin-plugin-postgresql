@@ -125,6 +125,7 @@ public sealed partial class PostgresqlDatabaseProvider : IJellyfinDatabaseProvid
     /// <inheritdoc />
     public async Task<string> MigrationBackupFast(CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var connection = RequireConnection();
         var key = DateTime.UtcNow.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture);
         var backupFile = GetBackupPath(key);
@@ -135,8 +136,8 @@ public sealed partial class PostgresqlDatabaseProvider : IJellyfinDatabaseProvid
 
         await RunPostgresToolAsync(
             "pg_dump",
-            $"--host={connection.Host} --port={connection.Port} --username={connection.Username} --dbname={connection.Database} --file=\"{backupFile}\" --no-password --clean --if-exists",
-            connection.Password!,
+            [$"--file={backupFile}", "--clean", "--if-exists"],
+            connection,
             cancellationToken).ConfigureAwait(false);
 
         LogBackupComplete();
@@ -147,13 +148,14 @@ public sealed partial class PostgresqlDatabaseProvider : IJellyfinDatabaseProvid
     /// <inheritdoc />
     public async Task RestoreBackupFast(string key, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var connection = RequireConnection();
         var backupFile = GetBackupPath(key);
 
         if (!File.Exists(backupFile))
         {
             LogBackupMissingForRestore(key);
-            return;
+            throw new FileNotFoundException("The PostgreSQL backup required for restore does not exist.", backupFile);
         }
 
         NpgsqlConnection.ClearAllPools();
@@ -162,8 +164,8 @@ public sealed partial class PostgresqlDatabaseProvider : IJellyfinDatabaseProvid
 
         await RunPostgresToolAsync(
             "psql",
-            $"--host={connection.Host} --port={connection.Port} --username={connection.Username} --dbname={connection.Database} --file=\"{backupFile}\" --no-password --quiet --set=ON_ERROR_STOP=1",
-            connection.Password!,
+            [$"--file={backupFile}", "--quiet", "--no-psqlrc", "--set=ON_ERROR_STOP=1", "--single-transaction"],
+            connection,
             cancellationToken).ConfigureAwait(false);
 
         LogRestoreComplete();
@@ -233,22 +235,14 @@ public sealed partial class PostgresqlDatabaseProvider : IJellyfinDatabaseProvid
 
     private async Task RunPostgresToolAsync(
         string fileName,
-        string arguments,
-        string password,
+        IEnumerable<string> arguments,
+        NpgsqlConnectionStringBuilder connection,
         CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         using var process = new Process
         {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = fileName,
-                Arguments = arguments,
-                Environment = { ["PGPASSWORD"] = password },
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
-            }
+            StartInfo = PostgresqlConnectionSettings.CreateToolStartInfo(fileName, arguments, connection)
         };
 
         try
@@ -265,10 +259,30 @@ public sealed partial class PostgresqlDatabaseProvider : IJellyfinDatabaseProvid
 
         // Both pipes must be drained while the tool runs: neither is large in the happy path, but
         // a redirected pipe that fills up blocks the child process forever.
-        var standardOutput = process.StandardOutput.ReadToEndAsync(cancellationToken);
-        var standardError = process.StandardError.ReadToEndAsync(cancellationToken);
+        // Keep draining even when the caller cancels, until the terminated tool has closed its pipes.
+        var standardOutput = process.StandardOutput.ReadToEndAsync(CancellationToken.None);
+        var standardError = process.StandardError.ReadToEndAsync(CancellationToken.None);
 
-        await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            try
+            {
+                process.Kill(entireProcessTree: true);
+            }
+            catch (InvalidOperationException)
+            {
+                // The process can exit between cancellation and Kill.
+            }
+
+            await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
+            await Task.WhenAll(standardOutput, standardError).ConfigureAwait(false);
+            throw;
+        }
+
         await standardOutput.ConfigureAwait(false);
         var error = await standardError.ConfigureAwait(false);
 

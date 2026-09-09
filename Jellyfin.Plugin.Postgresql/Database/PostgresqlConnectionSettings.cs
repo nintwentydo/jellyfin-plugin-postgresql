@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.Reflection;
 using Jellyfin.Database.Implementations.DbConfiguration;
@@ -63,6 +64,59 @@ internal static class PostgresqlConnectionSettings
         {
             Password = null
         }.ToString();
+    }
+
+    /// <summary>
+    /// Configures a native PostgreSQL tool with the selected connection and compatible TLS settings.
+    /// </summary>
+    /// <param name="fileName">The PostgreSQL executable.</param>
+    /// <param name="arguments">Tool-specific arguments, without shell quoting.</param>
+    /// <param name="connection">The resolved provider connection.</param>
+    /// <returns>The process configuration.</returns>
+    internal static ProcessStartInfo CreateToolStartInfo(string fileName, IEnumerable<string> arguments, NpgsqlConnectionStringBuilder connection)
+    {
+        ArgumentNullException.ThrowIfNull(arguments);
+        ArgumentNullException.ThrowIfNull(connection);
+
+        var startInfo = new ProcessStartInfo(fileName)
+        {
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+        startInfo.ArgumentList.Add($"--host={connection.Host}");
+        startInfo.ArgumentList.Add($"--port={connection.Port.ToString(CultureInfo.InvariantCulture)}");
+        startInfo.ArgumentList.Add($"--username={connection.Username}");
+        startInfo.ArgumentList.Add($"--dbname={connection.Database}");
+        startInfo.ArgumentList.Add("--no-password");
+        foreach (var argument in arguments)
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        startInfo.Environment["PGPASSWORD"] = connection.Password;
+
+        // ShouldSerialize checks explicitly supplied values; Npgsql's ContainsKey only checks
+        // supported keywords. Preserve inherited libpq settings when the provider omits one.
+        if (connection.ShouldSerialize("SSL Mode"))
+        {
+            startInfo.Environment["PGSSLMODE"] = connection.SslMode switch
+            {
+                SslMode.VerifyCA => "verify-ca",
+                SslMode.VerifyFull => "verify-full",
+                _ => connection.SslMode.ToString().ToLowerInvariant()
+            };
+        }
+
+        if (connection.ShouldSerialize("Root Certificate"))
+        {
+            startInfo.Environment["PGSSLROOTCERT"] = connection.RootCertificate;
+        }
+
+        // Client certificates stay in libpq's configuration: Npgsql can use a PFX while the
+        // tools use a separate PEM file. Forwarding its path would break that working setup.
+        return startInfo;
     }
 
     private static NpgsqlConnectionStringBuilder FromEnvironment()

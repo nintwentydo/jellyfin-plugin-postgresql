@@ -12,9 +12,29 @@ dotnet test
 sh docker/test-entrypoint.sh
 ```
 
-The .NET tests inspect the EF model, generated SQL, connection defaults, and registered services. They need no PostgreSQL server. The shell check exercises the entrypoint in a temporary directory and needs no Docker daemon.
+Without `JELLYFIN_POSTGRES_TEST_CONNECTION`, the .NET tests inspect the EF model, generated SQL, connection defaults, and registered services; the database integration tests are skipped. The shell check exercises the entrypoint in a temporary directory and needs no Docker daemon.
 
-These checks do not cover live startup, scans, playback-state saves, or backup/restore. Verify those against a disposable Jellyfin/PostgreSQL installation before releasing provider changes.
+### PostgreSQL integration tests
+
+Use a PostgreSQL 18 instance dedicated to testing and install PostgreSQL 18 client tools (`pg_dump` and `psql`) on the test process's `PATH`. The tests create and drop uniquely named databases; the supplied role needs `LOGIN` and `CREATEDB`, but does not need superuser access. Do not use a production server.
+
+For example, provision the test role through an administrator connection to the disposable instance:
+
+```sql
+CREATE ROLE jellyfin_test WITH LOGIN CREATEDB NOSUPERUSER PASSWORD 'jellyfin_test';
+```
+
+Then run the suite from a POSIX shell, replacing the host and port if needed:
+
+```sh
+TZ=Australia/Melbourne \
+JELLYFIN_POSTGRES_TEST_CONNECTION='Host=localhost;Port=5432;Database=postgres;Username=jellyfin_test;Password=jellyfin_test' \
+dotnet test
+```
+
+The non-UTC timezone exercises local date conversion. An invalid supplied connection fails the integration tests instead of skipping them. These checks exercise the provider against a real database, including native SQL backup/recovery; they do not start Jellyfin or validate built-in ZIP restore. Verify startup, scans, and playback flows against a disposable Jellyfin/PostgreSQL installation before releasing provider changes.
+
+The [test workflow](../.github/workflows/test.yaml) retains the fast tests and entrypoint check, and adds a PostgreSQL 18 service with this restricted test role, matching client tools, and the pending-model check below.
 
 ## Code map
 

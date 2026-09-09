@@ -34,9 +34,11 @@ docker compose start jellyfin
 
 ### Jellyfin's backup support
 
-Before schema migrations, the provider makes a temporary SQL dump in Jellyfin's data directory under `PostgresqlBackups/`. Jellyfin can request a restore if migration fails and deletion after success. These dumps are not scheduled backups.
+Before schema migrations, the provider makes a temporary SQL dump in Jellyfin's data directory under `PostgresqlBackups/`. Jellyfin can request a restore if migration fails and deletion after success. Native SQL recovery runs `psql` in one transaction and stops on the first SQL error, so a failed restore rolls back its database changes. A missing required dump is reported as an error. These dumps are not scheduled backups.
 
-The provider also implements the database operations used by Jellyfin's built-in backup and restore. Those operations can hold the [transaction lock](behaviour.md#transaction-locking), so schedule them during quiet periods.
+Jellyfin's built-in ZIP backup uses a separate JSON database import path. PostgreSQL restore through that path remains unvalidated: core changes are needed for atomic import and provider-specific identity-sequence completion. Use a tested PostgreSQL dump plus the corresponding Jellyfin files for recovery until those changes are available and verified. The native SQL recovery tests do not establish built-in ZIP restore support.
+
+Built-in backup transactions hold the [transaction lock](behaviour.md#transaction-locking); schedule them during quiet periods. Native `pg_dump` does not acquire the provider's advisory lock.
 
 ## Upgrading
 

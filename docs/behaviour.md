@@ -32,4 +32,4 @@ See [WriteSerialisingTransactionInterceptor.cs](../Jellyfin.Plugin.Postgresql/Da
 - Shutdown clears Npgsql's connection pools.
 - Migration backups use `pg_dump` and `psql`; see [operations](operations.md#jellyfins-backup-support).
 
-[The tests](../tests/Jellyfin.Plugin.Postgresql.Tests/PostgresqlMappingTests.cs) check model mappings, generated SQL, and service registration. They do not exercise live PostgreSQL queries or concurrent saves.
+[The fast tests](../tests/Jellyfin.Plugin.Postgresql.Tests/PostgresqlMappingTests.cs) check model mappings, generated SQL, and service registration. The optional [PostgreSQL suite](../tests/Jellyfin.Plugin.Postgresql.Tests/PostgresqlIntegrationTests.cs) executes queries, checks transaction locking, and validates native backup/recovery against disposable databases. See [development](development.md#postgresql-integration-tests) for setup and coverage limits.

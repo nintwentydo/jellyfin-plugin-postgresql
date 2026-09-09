@@ -20,8 +20,8 @@ namespace Jellyfin.Plugin.Postgresql.Database;
 /// unrated item tops a rating-descending list on PostgreSQL instead of closing it. Npgsql already
 /// implements the SQLite placement behind <c>ReverseNullOrdering</c> but keeps that switch
 /// internal because it does not rebuild indexes to match. That cost is accepted here: the
-/// affected b-tree indexes still filter, they just no longer supply the order, and a sort over
-/// one filtered library page is milliseconds. Should EXPLAIN on a large library show otherwise,
+/// affected b-tree indexes can still filter, but may no longer supply the order. Sorting may
+/// examine every qualifying row even for a limited page. If representative plans justify it,
 /// the follow-up is <c>NULLS FIRST</c> on the sort-bearing indexes through
 /// <c>SetNullSortOrder</c> in <see cref="PostgresqlModelCustomizer"/> plus a migration.
 /// </remarks>

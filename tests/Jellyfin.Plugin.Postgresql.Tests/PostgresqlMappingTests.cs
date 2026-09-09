@@ -69,7 +69,7 @@ public class PostgresqlMappingTests
     }
 
     [Fact]
-    public void DateTime_columns_round_trip_as_utc()
+    public void DateTime_read_converter_marks_values_as_utc()
     {
         using var context = CreateContext();
 
