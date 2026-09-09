@@ -141,7 +141,7 @@ public sealed class PostgresqlIntegrationTests(PostgresqlFixture database) : ICl
         {
             await firstTransaction.DisposeAsync();
             // The body checks the save outcome. Drain cleanup without replacing its failure.
-            await ((Task)secondSave).ConfigureAwait(ConfigureAwaitOptions.ContinueOnCapturedContext | ConfigureAwaitOptions.SuppressThrowing);
+            await DrainForCleanupAsync(secondSave);
         }
 
         await using var check = database.CreateContext();
@@ -222,7 +222,7 @@ public sealed class PostgresqlIntegrationTests(PostgresqlFixture database) : ICl
         {
             // Release A even if observing B fails; drain B without replacing that failure.
             await firstTransaction.DisposeAsync();
-            await ((Task)secondTransactionTask).ConfigureAwait(ConfigureAwaitOptions.ContinueOnCapturedContext | ConfigureAwaitOptions.SuppressThrowing);
+            await DrainForCleanupAsync(secondTransactionTask);
             if (secondTransactionTask.IsCompletedSuccessfully)
             {
                 await using var cleanup = await secondTransactionTask;
@@ -253,7 +253,7 @@ public sealed class PostgresqlIntegrationTests(PostgresqlFixture database) : ICl
         {
             await cancellation.CancelAsync();
             // Cancellation is asserted above; cleanup must also handle an early test failure.
-            await ((Task)waiting).ConfigureAwait(ConfigureAwaitOptions.ContinueOnCapturedContext | ConfigureAwaitOptions.SuppressThrowing);
+            await DrainForCleanupAsync(waiting);
             if (waiting.IsCompletedSuccessfully)
             {
                 await using var cleanup = await waiting;
@@ -381,7 +381,7 @@ public sealed class PostgresqlIntegrationTests(PostgresqlFixture database) : ICl
         {
             await cancellation.CancelAsync();
             // The body checks cancellation; finish cleanup while preserving any prior failure.
-            await restore.ConfigureAwait(ConfigureAwaitOptions.ContinueOnCapturedContext | ConfigureAwaitOptions.SuppressThrowing);
+            await DrainForCleanupAsync(restore);
             await database.Provider.DeleteBackup(key);
         }
     }
@@ -395,6 +395,11 @@ public sealed class PostgresqlIntegrationTests(PostgresqlFixture database) : ICl
         await Assert.ThrowsAsync<FileNotFoundException>(() => database.Provider.RestoreBackupFast("does-not-exist", CancellationToken.None));
         Assert.Equal(history, await context.Database.GetAppliedMigrationsAsync());
         Assert.Equal(count, await context.BaseItems.CountAsync());
+    }
+
+    private static async Task DrainForCleanupAsync(Task task)
+    {
+        await task.ConfigureAwait(ConfigureAwaitOptions.ContinueOnCapturedContext | ConfigureAwaitOptions.SuppressThrowing);
     }
 }
 
