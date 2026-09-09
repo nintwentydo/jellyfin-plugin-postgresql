@@ -12,6 +12,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: docker-1.1.3.0-jf13-custom
+  cancel-in-progress: true
+
 env:
   IMAGE: ghcr.io/nintwentydo/jellyfin-postgres
   RELEASE_TAG: 1.1.3.0-jf13-custom
