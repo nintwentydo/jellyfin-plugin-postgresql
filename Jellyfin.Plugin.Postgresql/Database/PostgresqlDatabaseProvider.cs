@@ -130,8 +130,7 @@ public sealed partial class PostgresqlDatabaseProvider : IJellyfinDatabaseProvid
 
         // A newer pg_dump can read an older server but emit SQL that cannot be restored to it.
         // Reject that backup before core starts a migration that might need it for rollback.
-        var databaseConnection = new NpgsqlConnection(connection.ConnectionString);
-        await using (databaseConnection.ConfigureAwait(false))
+        using (var databaseConnection = new NpgsqlConnection(connection.ConnectionString))
         {
             await databaseConnection.OpenAsync(cancellationToken).ConfigureAwait(false);
             var serverMajor = databaseConnection.PostgreSqlVersion.Major.ToString(CultureInfo.InvariantCulture);
