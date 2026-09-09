@@ -71,6 +71,7 @@ jobs:
           --command "CREATE ROLE jellyfin_test WITH LOGIN CREATEDB NOSUPERUSER PASSWORD 'jellyfin_test';"
       - name: Check migration model
         run: |
+          dotnet restore
           dotnet tool restore
           dotnet tool run dotnet-ef migrations has-pending-model-changes --project Jellyfin.Plugin.Postgresql --configuration Release
       - name: Test against PostgreSQL

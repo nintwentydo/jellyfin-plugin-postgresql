@@ -57,6 +57,7 @@ See [provider behaviour](behaviour.md) for the reasons behind the customisations
 Restore the local EF tool and check whether the model has changed:
 
 ```sh
+dotnet restore
 dotnet tool restore
 dotnet tool run dotnet-ef migrations has-pending-model-changes --project Jellyfin.Plugin.Postgresql
 ```
