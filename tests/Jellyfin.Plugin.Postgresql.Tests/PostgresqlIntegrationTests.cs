@@ -140,13 +140,8 @@ public sealed class PostgresqlIntegrationTests(PostgresqlFixture database) : ICl
         finally
         {
             await firstTransaction.DisposeAsync();
-            try
-            {
-                await secondSave;
-            }
-            catch (OperationCanceledException) when (token.IsCancellationRequested)
-            {
-            }
+            // The body checks the save outcome. Drain cleanup without replacing its failure.
+            await ((Task)secondSave).ConfigureAwait(ConfigureAwaitOptions.ContinueOnCapturedContext | ConfigureAwaitOptions.SuppressThrowing);
         }
 
         await using var check = database.CreateContext();
@@ -225,14 +220,12 @@ public sealed class PostgresqlIntegrationTests(PostgresqlFixture database) : ICl
         }
         finally
         {
-            // Release A even if observing B fails, then await/dispose B before fixture cleanup.
+            // Release A even if observing B fails; drain B without replacing that failure.
             await firstTransaction.DisposeAsync();
-            try
+            await ((Task)secondTransactionTask).ConfigureAwait(ConfigureAwaitOptions.ContinueOnCapturedContext | ConfigureAwaitOptions.SuppressThrowing);
+            if (secondTransactionTask.IsCompletedSuccessfully)
             {
                 await using var cleanup = await secondTransactionTask;
-            }
-            catch (OperationCanceledException) when (token.IsCancellationRequested)
-            {
             }
         }
     }
@@ -259,12 +252,11 @@ public sealed class PostgresqlIntegrationTests(PostgresqlFixture database) : ICl
         finally
         {
             await cancellation.CancelAsync();
-            try
+            // Cancellation is asserted above; cleanup must also handle an early test failure.
+            await ((Task)waiting).ConfigureAwait(ConfigureAwaitOptions.ContinueOnCapturedContext | ConfigureAwaitOptions.SuppressThrowing);
+            if (waiting.IsCompletedSuccessfully)
             {
                 await using var cleanup = await waiting;
-            }
-            catch (OperationCanceledException)
-            {
             }
 
             await waiter.DisposeAsync();
@@ -388,14 +380,8 @@ public sealed class PostgresqlIntegrationTests(PostgresqlFixture database) : ICl
         finally
         {
             await cancellation.CancelAsync();
-            try
-            {
-                await restore;
-            }
-            catch (OperationCanceledException)
-            {
-            }
-
+            // The body checks cancellation; finish cleanup while preserving any prior failure.
+            await restore.ConfigureAwait(ConfigureAwaitOptions.ContinueOnCapturedContext | ConfigureAwaitOptions.SuppressThrowing);
             await database.Provider.DeleteBackup(key);
         }
     }
