@@ -10,7 +10,6 @@ import secrets
 import subprocess
 import tempfile
 import time
-import urllib.error
 import urllib.request
 import uuid
 
@@ -97,7 +96,7 @@ def main():
                 try:
                     info = api("GET", "/System/Info/Public")
                     break
-                except (urllib.error.URLError, TimeoutError):
+                except OSError:
                     if time.monotonic() >= deadline or docker("inspect", "--format", "{{.State.Running}}", jellyfin) != "true":
                         raise RuntimeError("Jellyfin did not become ready") from None
                     time.sleep(2)
