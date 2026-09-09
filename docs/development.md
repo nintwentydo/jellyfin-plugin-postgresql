@@ -32,7 +32,7 @@ JELLYFIN_POSTGRES_TEST_CONNECTION='Host=localhost;Port=5432;Database=postgres;Us
 dotnet test
 ```
 
-The non-UTC timezone exercises local date conversion. An invalid supplied connection fails the integration tests instead of skipping them. These checks exercise the provider against a real database, including native SQL backup/recovery; they do not start Jellyfin or validate built-in ZIP restore. Verify startup, scans, and playback flows against a disposable Jellyfin/PostgreSQL installation before releasing provider changes.
+The non-UTC timezone exercises UTC, Local and Unspecified dates across summer and winter, including nullable/required columns and query parameters. An invalid supplied connection fails the integration tests instead of skipping them. The suite also checks overlapping UserData inserts, composite-key isolation, ordinary constraint failures, synchronous lock waiting, cancellation and native SQL backup/recovery. These tests use EF contexts directly; they do not start Jellyfin, prove cache/preference preservation in core save paths, or validate built-in ZIP restore. Verify startup, scans, and playback flows against a disposable Jellyfin/PostgreSQL installation before releasing provider changes.
 
 The [test workflow](../.github/workflows/test.yaml) retains the fast tests and entrypoint check, and adds a PostgreSQL 18 service with this restricted test role, matching client tools, and the pending-model check below.
 

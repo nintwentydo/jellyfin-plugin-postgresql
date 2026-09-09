@@ -15,9 +15,9 @@ namespace Jellyfin.Plugin.Postgresql.Database;
 /// <c>ProcessorCount - 3</c> workers at once. PostgreSQL lets them all run, so two saves that
 /// introduce the same new tag both insert it and the loser dies with <c>23505</c> on
 /// <c>IX_ItemValues_Type_Value</c>, or the pair deadlocks on that index. The whole save is lost
-/// each time. One transaction-scoped advisory lock taken as each transaction opens puts the
-/// single writer back at the database: transactions queue, plain reads never wait, and the lock
-/// goes with the commit or rollback, across processes too. Relies on READ COMMITTED, the server
+/// each time. A transaction-scoped advisory lock queues participating EF transactions. Plain
+/// reads do not acquire it, and it is released at commit or rollback, across processes too.
+/// Relies on READ COMMITTED, the server
 /// default core never overrides, so every statement after the lock sees the previous writer's
 /// commit.
 /// <para>
@@ -29,8 +29,8 @@ namespace Jellyfin.Plugin.Postgresql.Database;
 /// </remarks>
 internal sealed class WriteSerialisingTransactionInterceptor : DbTransactionInterceptor
 {
-    // ponytail: one lock for the whole database; per-table keys would let unrelated writers
-    // overlap if scan throughput ever measurably suffers.
+    // ponytail: one lock serializes EF transactions; narrow it only after core save races and
+    // every affected transaction are validated, including transactions spanning multiple tables.
     private const string AcquireLock = "SELECT pg_advisory_xact_lock(hashtext('jellyfin'))";
 
     /// <inheritdoc />

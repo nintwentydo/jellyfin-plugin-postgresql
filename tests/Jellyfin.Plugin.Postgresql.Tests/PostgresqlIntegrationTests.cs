@@ -40,29 +40,143 @@ public sealed class PostgresqlIntegrationTests(PostgresqlFixture database) : ICl
     }
 
     [PostgresqlFact]
-    public async Task Null_sort_order_and_datetime_round_trips_match_the_provider_contract()
+    public async Task Null_sort_order_matches_sqlite()
     {
         await using var context = database.CreateContext();
         const string type = "integration-order-dates";
-        var utc = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc);
-        var local = utc.ToLocalTime();
         context.BaseItems.AddRange(
-            new BaseItemEntity { Id = Guid.NewGuid(), Type = type, CommunityRating = null, DateCreated = null },
-            new BaseItemEntity { Id = Guid.NewGuid(), Type = type, CommunityRating = 5, DateCreated = utc },
-            new BaseItemEntity { Id = Guid.NewGuid(), Type = type, CommunityRating = 7, DateCreated = local });
+            new BaseItemEntity { Id = Guid.NewGuid(), Type = type, CommunityRating = null },
+            new BaseItemEntity { Id = Guid.NewGuid(), Type = type, CommunityRating = 5 },
+            new BaseItemEntity { Id = Guid.NewGuid(), Type = type, CommunityRating = 7 });
         await context.SaveChangesAsync();
         context.ChangeTracker.Clear();
 
         var items = context.BaseItems.Where(item => item.Type == type);
         Assert.Equal(new float?[] { null, 5, 7 }, await items.OrderBy(item => item.CommunityRating).Select(item => item.CommunityRating).ToArrayAsync());
         Assert.Equal(new float?[] { 7, 5, null }, await items.OrderByDescending(item => item.CommunityRating).Select(item => item.CommunityRating).ToArrayAsync());
-        var dates = await items.OrderBy(item => item.CommunityRating).Select(item => item.DateCreated).ToArrayAsync();
-        Assert.Null(dates[0]);
-        Assert.All(dates.Skip(1), value =>
+    }
+
+    [PostgresqlFact]
+    public async Task Date_writes_reads_and_predicates_preserve_sqlite_kind_semantics()
+    {
+        // CI runs in Australia/Melbourne, so January and June exercise different UTC offsets.
+        // Stock SQLite treats Unspecified as local time, not as UTC with a missing Kind.
+        foreach (var month in new[] { 1, 6 })
         {
-            Assert.Equal(utc, value);
-            Assert.Equal(DateTimeKind.Utc, value!.Value.Kind);
-        });
+            var utc = new DateTime(2026, month, 2, 3, 4, 5, DateTimeKind.Utc);
+            var local = utc.ToLocalTime();
+            var unspecified = DateTime.SpecifyKind(local, DateTimeKind.Unspecified);
+            var type = $"integration-dates-{month}";
+            await using (var writer = database.CreateContext())
+            {
+                foreach (var date in new[] { utc, local, unspecified })
+                {
+                    writer.BaseItems.Add(new BaseItemEntity { Id = Guid.NewGuid(), Type = type, DateCreated = date });
+                    writer.ActivityLogs.Add(new ActivityLog(date.Kind.ToString(), type, Guid.Empty) { DateCreated = date });
+                }
+
+                writer.BaseItems.Add(new BaseItemEntity { Id = Guid.NewGuid(), Type = type, DateCreated = null });
+                await writer.SaveChangesAsync();
+            }
+
+            await using var reader = database.CreateContext();
+            var items = reader.BaseItems.Where(item => item.Type == type);
+            var dates = await items.Select(item => item.DateCreated).ToArrayAsync();
+            Assert.Equal(1, dates.Count(date => date is null));
+            Assert.Equal(3, dates.Count(date => date == utc));
+            Assert.All(dates.Where(date => date.HasValue), date => Assert.Equal(DateTimeKind.Utc, date!.Value.Kind));
+
+            var requiredDates = await reader.ActivityLogs.Where(log => log.Type == type).Select(log => log.DateCreated).ToArrayAsync();
+            Assert.Equal(3, requiredDates.Length);
+            Assert.All(requiredDates, date =>
+            {
+                Assert.Equal(utc, date);
+                Assert.Equal(DateTimeKind.Utc, date.Kind);
+            });
+            Assert.Equal(3, await items.CountAsync(item => item.DateCreated == unspecified));
+            Assert.Equal(3, await reader.ActivityLogs.CountAsync(log => log.Type == type && log.DateCreated == local));
+        }
+    }
+
+    [PostgresqlFact]
+    public async Task Overlapping_userdata_inserts_update_only_the_matching_composite_key()
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var token = deadline.Token;
+        var itemId = Guid.NewGuid();
+        var user = new User("integration-upsert", "test", "test");
+        var otherUser = new User("integration-upsert-other", "test", "test");
+        UserData Data(Guid userId, string key, int count) => new()
+        {
+            ItemId = itemId, Item = null, UserId = userId, User = null,
+            CustomDataKey = key, PlayCount = count, PlaybackPositionTicks = count * 100L
+        };
+        await using (var setup = database.CreateContext())
+        {
+            setup.BaseItems.Add(new BaseItemEntity { Id = itemId, Type = "integration-upsert" });
+            setup.Users.AddRange(user, otherUser);
+            setup.UserData.AddRange(Data(user.Id, "other-key", 10), Data(otherUser.Id, "target", 20));
+            await setup.SaveChangesAsync(token);
+        }
+
+        await using var first = database.CreateContext();
+        await using var second = database.CreateContext();
+        await second.Database.OpenConnectionAsync(token);
+        var secondPid = ((NpgsqlConnection)second.Database.GetDbConnection()).ProcessID;
+        await using var firstTransaction = await first.Database.BeginTransactionAsync(token);
+        first.UserData.Add(Data(user.Id, "target", 1));
+        await first.SaveChangesAsync(token);
+        second.UserData.Add(Data(user.Id, "target", 2));
+        var secondSave = second.SaveChangesAsync(token);
+        try
+        {
+            // Whether EF opens an implicit transaction or waits at the unique index, this
+            // INSERT is already pending while the first row is still uncommitted.
+            await database.WaitUntilAsync(async () => await database.ScalarAsync<bool>(
+                $"SELECT EXISTS (SELECT FROM pg_stat_activity WHERE pid = {secondPid} AND wait_event_type = 'Lock')", token), token);
+            await firstTransaction.CommitAsync(token);
+            Assert.Equal(1, await secondSave);
+        }
+        finally
+        {
+            await firstTransaction.DisposeAsync();
+            try
+            {
+                await secondSave;
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+            }
+        }
+
+        await using var check = database.CreateContext();
+        var rows = await check.UserData.Where(row => row.ItemId == itemId).ToArrayAsync(token);
+        Assert.Equal(3, rows.Length);
+        var updated = Assert.Single(rows, row => row.UserId == user.Id && row.CustomDataKey == "target");
+        Assert.Equal(2, updated.PlayCount);
+        Assert.Equal(200L, updated.PlaybackPositionTicks);
+        Assert.Equal(10, Assert.Single(rows, row => row.CustomDataKey == "other-key").PlayCount);
+        Assert.Equal(20, Assert.Single(rows, row => row.UserId == otherUser.Id).PlayCount);
+    }
+
+    [PostgresqlFact]
+    public async Task Duplicate_item_values_still_fail_instead_of_using_the_userdata_upsert()
+    {
+        ItemValue Value() => new()
+        {
+            ItemValueId = Guid.NewGuid(), Type = ItemValueType.Tags,
+            Value = "integration-duplicate", CleanValue = "integration-duplicate"
+        };
+        await using (var first = database.CreateContext())
+        {
+            first.ItemValues.Add(Value());
+            await first.SaveChangesAsync();
+        }
+
+        await using var second = database.CreateContext();
+        second.ItemValues.Add(Value());
+        var error = await Assert.ThrowsAsync<DbUpdateException>(() => second.SaveChangesAsync());
+        Assert.Equal(PostgresErrorCodes.UniqueViolation, Assert.IsType<PostgresException>(error.InnerException).SqlState);
     }
 
     [PostgresqlFact]
@@ -83,7 +197,7 @@ public sealed class PostgresqlIntegrationTests(PostgresqlFixture database) : ICl
     }
 
     [PostgresqlFact]
-    public async Task Write_transactions_wait_for_the_advisory_lock_and_release_it()
+    public async Task Synchronous_write_transactions_wait_for_the_advisory_lock_and_release_it()
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         var token = deadline.Token;
@@ -94,7 +208,8 @@ public sealed class PostgresqlIntegrationTests(PostgresqlFixture database) : ICl
         var firstPid = ((NpgsqlConnection)first.Database.GetDbConnection()).ProcessID;
         var secondPid = ((NpgsqlConnection)second.Database.GetDbConnection()).ProcessID;
         await using var firstTransaction = await first.Database.BeginTransactionAsync(token);
-        var secondTransactionTask = second.Database.BeginTransactionAsync(token);
+        // Core SaveUserData and SaveItems use this synchronous transaction path.
+        var secondTransactionTask = Task.Run(() => second.Database.BeginTransaction(), token);
         try
         {
             // Observe the server's lock state instead of assuming that a delay proves blocking.
@@ -120,6 +235,49 @@ public sealed class PostgresqlIntegrationTests(PostgresqlFixture database) : ICl
             {
             }
         }
+    }
+
+    [PostgresqlFact]
+    public async Task Cancelling_a_waiting_transaction_releases_its_connection_and_allows_later_writes()
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token);
+        var token = deadline.Token;
+        await using var holder = database.CreateContext();
+        await using var heldTransaction = await holder.Database.BeginTransactionAsync(token);
+        await using var waiter = database.CreateContext();
+        await waiter.Database.OpenConnectionAsync(token);
+        var waiterPid = ((NpgsqlConnection)waiter.Database.GetDbConnection()).ProcessID;
+        var waiting = waiter.Database.BeginTransactionAsync(cancellation.Token);
+        try
+        {
+            await database.WaitUntilAsync(async () => await database.ScalarAsync<bool>(
+                $"SELECT EXISTS (SELECT FROM pg_locks WHERE pid = {waiterPid} AND locktype = 'advisory' AND NOT granted)", token), token);
+            await cancellation.CancelAsync();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waiting);
+        }
+        finally
+        {
+            await cancellation.CancelAsync();
+            try
+            {
+                await using var cleanup = await waiting;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+
+            await waiter.DisposeAsync();
+        }
+
+        await database.WaitUntilAsync(async () => !await database.ScalarAsync<bool>(
+            $"SELECT EXISTS (SELECT FROM pg_stat_activity WHERE pid = {waiterPid})", token), token);
+        await heldTransaction.CommitAsync(token);
+        await using var next = database.CreateContext();
+        await using var nextTransaction = await next.Database.BeginTransactionAsync(token);
+        next.BaseItems.Add(new BaseItemEntity { Id = Guid.NewGuid(), Type = "integration-after-lock-cancellation" });
+        await next.SaveChangesAsync(token);
+        await nextTransaction.CommitAsync(token);
     }
 
     [PostgresqlFact]

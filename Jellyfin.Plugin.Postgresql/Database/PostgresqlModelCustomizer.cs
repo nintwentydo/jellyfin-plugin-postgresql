@@ -56,8 +56,10 @@ internal sealed class PostgresqlModelCustomizer : RelationalModelCustomizer
                          && property.GetValueConverter() is null)
                 {
                     // Npgsql maps DateTime to `timestamp with time zone` and throws on any value
-                    // whose Kind is not Utc. Jellyfin stores UTC throughout but does not guarantee
-                    // Kind on the way in or out.
+                    // whose Kind is not Utc. Match Jellyfin's SQLite DateTimeKindValueConverter:
+                    // Local and Unspecified values are interpreted in the process timezone on
+                    // write; reads are UTC. Reinterpreting Unspecified ticks as UTC would change
+                    // existing metadata and API behavior relative to the stock provider.
                     property.SetValueConverter(_utcConverter);
                 }
             }

@@ -16,15 +16,12 @@ namespace Jellyfin.Plugin.Postgresql.Database;
 /// Generates <c>INSERT ... ON CONFLICT DO UPDATE</c> for the <c>UserData</c> table.
 /// </summary>
 /// <remarks>
-/// Jellyfin's <c>UserDataManager.SaveUserData</c> decides between INSERT and UPDATE with a
-/// check-then-insert (<c>Any()</c> then <c>Add</c>). Playback fires progress saves concurrently —
-/// a seek raises progress and stop events together — and two racing saves both pass the check,
-/// so the loser dies with <c>23505 duplicate key value violates unique constraint "PK_UserData"</c>
-/// and the client abandons playback. The race exists on SQLite too, but in-process the window is
-/// microseconds; over TCP it is routinely hit. Turning the INSERT into an upsert makes the loser
-/// overwrite instead of throw, which is the last-writer-wins outcome the server's UPDATE path
-/// produces anyway. Scoped to <c>UserData</c> only: elsewhere a duplicate key is a real bug that
-/// should keep throwing.
+/// Retains conflict handling for <c>UserData</c> inserts, including imports and direct EF writes.
+/// Jellyfin v12's ordinary <c>UserDataManager.SaveUserData</c> starts a transaction before its
+/// existence check, so the advisory lock already protects that particular read-then-insert path.
+/// The upsert remains until every insert caller is covered. It uses the same full-row,
+/// last-writer-wins behavior as core updates; it cannot preserve fields from a stale input object
+/// or fix a conflicting reattachment UPDATE. Other tables keep normal constraint failures.
 /// </remarks>
 internal sealed class PostgresqlUpdateSqlGenerator : NpgsqlUpdateSqlGenerator
 {
