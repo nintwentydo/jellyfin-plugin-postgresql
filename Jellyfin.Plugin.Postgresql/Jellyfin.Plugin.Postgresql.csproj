@@ -10,6 +10,10 @@
     <CodeAnalysisRuleSet>../jellyfin.ruleset</CodeAnalysisRuleSet>
   </PropertyGroup>
 
+  <Target Name="RequireCompatibleJellyfinSource" BeforeTargets="PrepareForBuild" Condition="'$(JellyfinSourceRoot)' == ''">
+    <Error Text="This custom plugin requires Jellyfin's database restore completion hook. Build with -p:JellyfinSourceRoot=/absolute/path/to/compatible-jellyfin; released 12.0.0 packages do not contain the hook." />
+  </Target>
+
   <!--
     Host-provided assemblies. The server already has these loaded, and shipping a second copy of
     EF Core beside it would be asking for an assembly conflict, so `artifacts` in build.yaml names
@@ -17,10 +21,18 @@
     `dotnet ef` reflects over it to scaffold migrations. Versions track the server release in
     build.yaml — a mismatch here surfaces as a model that does not match the running schema.
   -->
-  <ItemGroup>
+  <!-- The completion hook is not in released core packages yet; use JellyfinSourceRoot to validate the paired changes. -->
+  <ItemGroup Condition="'$(JellyfinSourceRoot)' == ''">
     <PackageReference Include="Jellyfin.Controller" Version="12.0.0" PrivateAssets="all" />
     <PackageReference Include="Jellyfin.Model" Version="12.0.0" PrivateAssets="all" />
     <PackageReference Include="Jellyfin.Database.Implementations" Version="12.0.0" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(JellyfinSourceRoot)' != ''">
+    <ProjectReference Include="$(JellyfinSourceRoot)/MediaBrowser.Controller/MediaBrowser.Controller.csproj" />
+    <ProjectReference Include="$(JellyfinSourceRoot)/MediaBrowser.Model/MediaBrowser.Model.csproj" />
+    <ProjectReference Include="$(JellyfinSourceRoot)/src/Jellyfin.Database/Jellyfin.Database.Implementations/Jellyfin.Database.Implementations.csproj" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.11" PrivateAssets="all" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.11" PrivateAssets="all" />
   </ItemGroup>

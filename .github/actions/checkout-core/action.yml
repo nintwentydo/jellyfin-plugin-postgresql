@@ -1,0 +1,24 @@
+name: Checkout paired Jellyfin core
+description: Reproduce the validated custom server from published commits
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v4
+      with:
+        repository: nintwentydo/jellyfin
+        ref: 46639d35ffe98b72a280ada4c436aa401728e4fb
+        path: .jellyfin-core
+        persist-credentials: false
+    - name: Apply the three independent core fixes
+      shell: bash
+      working-directory: .jellyfin-core
+      run: |
+        fixes=(
+          42b507efe1ccdf530714e46842e1e1131559c324
+          2d4850107a4ee60ebbfde662278eb42e45d11c27
+          544b893886f1c623295fa04ccf128cde7f6a6ae6
+        )
+        git fetch --no-tags --depth=2 origin "${fixes[@]}"
+        git cherry-pick --no-commit "${fixes[@]}"
+        test "$(git write-tree)" = abccaa9a1811f6ba9a4493c3bfd9057567397ed6
+        echo "JellyfinSourceRoot=$GITHUB_WORKSPACE/.jellyfin-core" >> "$GITHUB_ENV"

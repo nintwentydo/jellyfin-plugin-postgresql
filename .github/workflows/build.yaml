@@ -1,9 +1,10 @@
-name: '🏗️ Build Plugin'
+name: '🏗️ Build Custom Pair'
 
 on:
   push:
     branches:
       - master
+      - codex/custom-core-restore
     paths-ignore:
       - '**/*.md'
   pull_request:
@@ -12,10 +13,57 @@ on:
     paths-ignore:
       - '**/*.md'
   workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
 
 jobs:
-  call:
-    uses: jellyfin/jellyfin-meta-plugins/.github/workflows/build.yaml@master
-    with:
-      dotnet-version: "10.0.x"
-      dotnet-target: "net10.0"
+  plugin:
+    name: Plugin package
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/checkout-core
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Package plugin
+        id: package
+        uses: oddstr13/jellyfin-plugin-repository-manager@9497a0a499416cc572ed2e07a391d9f943a37b4d # v1.1.1
+        with:
+          dotnet-target: "net10.0"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: custom-plugin
+          path: ${{ steps.package.outputs.artifact }}
+          if-no-files-found: error
+
+  server:
+    name: Server ${{ matrix.rid }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        rid: [linux-x64, linux-arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/checkout-core
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Publish self-contained server
+        env:
+          RID: ${{ matrix.rid }}
+        run: |
+          dotnet publish "$JellyfinSourceRoot/Jellyfin.Server/Jellyfin.Server.csproj" \
+            --configuration Release --runtime "$RID" --self-contained true \
+            --output "$RUNNER_TEMP/server"
+          test -f "$RUNNER_TEMP/server/libhostpolicy.so"
+          test -f "$RUNNER_TEMP/server/libcoreclr.so"
+          tar -czf "jellyfin-13-custom-${RID}.tar.gz" -C "$RUNNER_TEMP/server" .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: custom-server-${{ matrix.rid }}
+          path: jellyfin-13-custom-${{ matrix.rid }}.tar.gz
+          if-no-files-found: error

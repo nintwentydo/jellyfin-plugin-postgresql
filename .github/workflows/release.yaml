@@ -1,116 +1,79 @@
-name: '📦 Release Plugin'
-
-# Process: bump version in build.yaml, commit, create github release with tag matching version
-# Builds the plugin with JPRM, attaches plugin and md5 to release, regenerates manifest.json, publishes docker package
+name: '📦 Release Custom Pair'
 
 on:
-  release:
-    types:
-      - released
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  tests:
-    uses: ./.github/workflows/test.yaml
-
-  release:
-    needs: tests
-    permissions:
-      contents: write
-      packages: write
-    runs-on: ubuntu-latest
+  validate:
+    name: Validate custom tag
+    runs-on: ubuntu-24.04
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Validate release and image tags
-        id: imgtag
+      - uses: actions/checkout@v4
+      - name: Require the versioned custom tag
         run: |
-          case "$GITHUB_REF" in
-            refs/tags/*) release_tag=${GITHUB_REF#refs/tags/} ;;
-            *) echo "::error::Release workflows must run on a tag, including manual dispatches."; exit 1 ;;
-          esac
-          plugin=$(sed -nE 's/^version: *"?([0-9]+(\.[0-9]+){3})"?[[:space:]]*$/\1/p' build.yaml)
-          jellyfin=$(sed -n 's/^ARG JELLYFIN_TAG=\(.*\)/\1/p' docker/Dockerfile | head -1)
-          test -n "$plugin"
-          test -n "$jellyfin"
-          if [ "${release_tag#v}" != "$plugin" ]; then
-            echo "::error::Release tag must match the version in build.yaml (an optional v prefix is allowed)."
+          version=$(sed -nE 's/^version: *"?([0-9]+(\.[0-9]+){3})"?[[:space:]]*$/\1/p' build.yaml)
+          test -n "$version"
+          if [ "$GITHUB_REF" != "refs/tags/${version}-jf13-custom" ]; then
+            echo "::error::Select the tag matching build.yaml's version with the -jf13-custom suffix."
             exit 1
           fi
-          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
-          echo "plugin=$plugin" >> "$GITHUB_OUTPUT"
-          echo "tag=${plugin}-jf${jellyfin}" >> "$GITHUB_OUTPUT"
 
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+  tests:
+    needs: validate
+    uses: ./.github/workflows/test.yaml
+
+  codeql:
+    needs: validate
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    uses: ./.github/workflows/scan-codeql.yaml
+
+  build:
+    needs: validate
+    uses: ./.github/workflows/build.yaml
+
+  publish:
+    name: Publish custom prerelease
+    needs: [tests, codeql, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
         with:
-          dotnet-version: "10.0.x"
-
-      - name: Build plugin zip
-        id: jprm
-        uses: oddstr13/jellyfin-plugin-repository-manager@9497a0a499416cc572ed2e07a391d9f943a37b4d # v1.1.1
-        with:
-          dotnet-target: "net10.0"
-
-      - name: Generate md5 checksum
+          path: release
+          merge-multiple: true
+      - name: Record source provenance
         run: |
-          zip="${{ steps.jprm.outputs.artifact }}"
-          md5sum "$zip" > "$zip.md5"
-
-      - name: Attach zip and checksum to the release
-        uses: softprops/action-gh-release@50195ba7f6f93d1ac97ba8332a178e008ad176aa
-        with:
-          fail_on_unmatched_files: true
-          tag_name: ${{ steps.imgtag.outputs.release_tag }}
-          files: |
-            ${{ steps.jprm.outputs.artifact }}
-            ${{ steps.jprm.outputs.artifact }}.md5
+          cp .github/actions/checkout-core/action.yml release/core-source.yml
+          cat > release/SOURCES.txt <<EOF
+          Plugin: https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}
+          Core repository: https://github.com/nintwentydo/jellyfin
+          Core base: 46639d35ffe98b72a280ada4c436aa401728e4fb
+          Applied commits, in order:
+            42b507efe1ccdf530714e46842e1e1131559c324
+            2d4850107a4ee60ebbfde662278eb42e45d11c27
+            544b893886f1c623295fa04ccf128cde7f6a6ae6
+          Reconstructed core tree: abccaa9a1811f6ba9a4493c3bfd9057567397ed6
+          Reconstruction instructions: core-source.yml
+          EOF
+          test -f release/jellyfin-13-custom-linux-x64.tar.gz
+          test -f release/jellyfin-13-custom-linux-arm64.tar.gz
+      - name: Checksum release assets
+        working-directory: release
+        run: sha256sum ./*.zip ./*.tar.gz core-source.yml SOURCES.txt > SHA256SUMS
+      - name: Create prerelease
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # Reuses the zip JPRM just built, so build.yaml stays the only place that
-      # lists which assemblies ship.
-      - name: Stage the plugin for the Docker image
-        run: unzip -q "${{ steps.jprm.outputs.artifact }}" -d docker/plugin
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push the image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          build-args: |
-            PLUGIN_VERSION=${{ steps.imgtag.outputs.plugin }}
-          # Compound tag is the canonical immutable one. A plain plugin version
-          # could not express the same plugin rebuilt against a newer Jellyfin,
-          # and targetAbi cannot either: every 12.0 RC reports 12.0.0.0.
-          tags: |
-            ghcr.io/${{ github.repository_owner }}/jellyfin-postgres:${{ steps.imgtag.outputs.tag }}
-            ghcr.io/${{ github.repository_owner }}/jellyfin-postgres:latest
-
-      - name: Regenerate manifest.json on master
-        uses: Kevinjil/jellyfin-plugin-repo-action@a7832ecc44c6b1a45d531970f6647b8682b005b8
-        with:
-          ignorePrereleases: true
-          githubToken: ${{ secrets.GITHUB_TOKEN }}
-          repository: ${{ github.repository }}
-          pagesBranch: master
-          pagesFile: manifest.json
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" release/* --verify-tag --prerelease --latest=false \
+            --title 'PostgreSQL 1.1.3.0 — custom Jellyfin 13' \
+            --notes-file docs/custom-release.md
