@@ -93,7 +93,7 @@ The repository currently has one `InitialCreate` migration. Review generated cha
 
 The custom release tag is **`1.1.3.0-jf13-custom`**. Plugin metadata keeps the numeric version `1.1.3.0` and target ABI `13.0.0.0`. The tag and release description identify the custom dependency; install the plugin only with its paired server.
 
-The [release workflow](../.github/workflows/release.yaml) uses the pinned reconstructed source and gates publication on tests. It attaches the plugin ZIP, self-contained Linux ARM64/x64 server bundles, checksums and source references as a prerelease. It does not publish a Docker image, update `manifest.json`, or change the stable release channel. Run build, test, model and CodeQL checks against the same source pin before publishing.
+The [release workflow](../.github/workflows/release.yaml) uses the pinned reconstructed source and gates publication on tests. It attaches the plugin ZIP, self-contained Linux ARM64/x64 server bundles, checksums and source references as a prerelease. It does not update `manifest.json` or change the stable release channel. The custom [Docker image](docker.md) reuses these exact checksummed server/plugin assets and publishes only the `1.1.3.0-jf13-custom` image tag, leaving `latest` unchanged. Run build, test, model and CodeQL checks against the same source pin before publishing.
 
 Only the three DLLs listed in [build.yaml](../build.yaml), plus plugin metadata, belong in the plugin ZIP. Jellyfin supplies its other runtime assemblies; do not package the entire plugin build directory. Server bundles must use `dotnet publish --self-contained true` for each runtime identifier so they include the .NET runtime. Web assets, FFmpeg and PostgreSQL client tools are separate deployment requirements.
 

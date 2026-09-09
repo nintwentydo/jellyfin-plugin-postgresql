@@ -2,25 +2,46 @@
 
 [Back to README](../README.md)
 
-Custom prerelease **`1.1.3.0-jf13-custom`** ships a plugin ZIP and self-contained Linux ARM64/x64 server bundles, not a Docker image. The published `ghcr.io/nintwentydo/jellyfin-postgres:latest` image and stock plugin catalogue remain unchanged and do not contain this pair. Use the [manual installation](../README.md#install) or build your own image with both prerelease components.
+Use the custom prerelease image for `linux/amd64` or `linux/arm64`:
 
-## Build the image
+```sh
+docker pull ghcr.io/nintwentydo/jellyfin-postgres:1.1.3.0-jf13-custom
+```
 
-The checked-in [Dockerfile](../docker/Dockerfile) and [Compose example](../docker/compose.example.yml) target the stock server and need adaptation before using this prerelease. A custom image must:
+It combines the exact checksummed server/plugin assets from [the prerelease](https://github.com/nintwentydo/jellyfin-plugin-postgresql/releases/tag/1.1.3.0-jf13-custom), plus FFmpeg, a Jellyfin 12 web shell and PostgreSQL 18 client tools. The stable `latest` image and plugin catalogue remain unchanged. The [manual installation](../README.md#manual) remains available.
 
-- Replace the entire server directory with the matching architecture's self-contained bundle; do not mix old and new server assemblies.
-- Install the paired plugin ZIP and configure the PostgreSQL provider before starting Jellyfin.
-- Provide web assets and FFmpeg, plus PostgreSQL client tools matching the database's major version.
-- Preserve configuration/data and cache in writable mounts, and mount media read-only unless writes are intended.
+## Start a new server
 
-The local ARM64 validation retained the base image's Jellyfin 12 web shell separately from the replaced server directory. API browsing, restart, ZIP restoration and native direct/HLS playback passed; this does not establish full Jellyfin 13 web/UI compatibility. No custom image is published by this release.
+1. Save [compose.example.yml](../docker/compose.example.yml) as `compose.yml` in a new directory. Set the Jellyfin service's image to the custom tag:
+
+   ```yaml
+   image: ghcr.io/nintwentydo/jellyfin-postgres:1.1.3.0-jf13-custom
+   ```
+
+2. Create a private `.env` file beside it with `POSTGRES_PASSWORD='replace-with-a-long-random-password'`, and replace `/path/to/media` in Compose with your media directory.
+3. Start the stack:
+
+   ```sh
+   docker compose up -d
+   docker compose logs -f jellyfin
+   ```
+
+4. Open port **8096** on your Docker host and finish setup. Add media libraries from `/data`.
+
+The example uses PostgreSQL 18, matching the image's client tools. For PostgreSQL 15–17, use the manual installation or an image with matching-major `pg_dump` and `psql`. The provider rejects migration backups with mismatched client tools.
 
 ## Configuration and storage
 
-The reusable [entrypoint](../docker/entrypoint.sh) installs the staged plugin into `/config/plugins/PostgreSQL/`, removes older `PostgreSQL_*` folders, and creates `/config/config/database.xml` if it is missing. The generated configuration reads the [environment variables](configuration.md#environment-variables).
+The [entrypoint](../docker/entrypoint.sh) installs the bundled plugin into `/config/plugins/PostgreSQL/`, removes older `PostgreSQL_*` folders, and creates `/config/config/database.xml` if it is missing. The generated configuration reads the [environment variables](configuration.md#environment-variables).
 
 **An existing `database.xml` is preserved.** If it selects SQLite, the entrypoint logs a warning and does not switch databases. Use a fresh configuration volume for a new PostgreSQL installation; changing this file does not migrate existing data.
 
-PostgreSQL 18 uses `/var/lib/postgresql` for its data-volume mount; 17 and earlier use `/var/lib/postgresql/data`. Changing the mount or image major version does not move or upgrade an existing database.
+The example persists database, configuration and cache in named volumes and mounts media read-only. PostgreSQL 18 uses `/var/lib/postgresql` for its data-volume mount; 17 and earlier use `/var/lib/postgresql/data`. Changing the mount or image major version does not move or upgrade an existing database.
 
 When running Jellyfin with `user: "1000:1000"`, make `/config` and `/cache` writable by that UID and GID first. The entrypoint also honours `JELLYFIN_DATA_DIR` and `JELLYFIN_CONFIG_DIR` when using custom paths. Keep database credentials outside version control.
+
+## Known limitations
+
+- The image retains a Jellyfin 12 web shell. Prior local ARM64 API browsing, restart, ZIP restoration and direct/HLS playback passed, but full Jellyfin 13 web/UI compatibility and x64 runtime playback remain unvalidated.
+- Core ZIP backups omit `HomeSections`, and database rollback does not undo copied configuration/data files. Keep a tested PostgreSQL dump and the corresponding Jellyfin files; see [backup guidance](operations.md#backups).
+- This remains a single-server provider with no SQLite migration tool. Use the paired custom server/plugin together; ABI `13.0.0.0` alone does not identify a compatible core build.

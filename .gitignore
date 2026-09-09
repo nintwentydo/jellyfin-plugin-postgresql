@@ -5,4 +5,5 @@ obj/
 artifacts
 scratchpad/
 docker/plugin/
+docker/server/
 .jellyfin-core/
