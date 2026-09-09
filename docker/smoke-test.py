@@ -94,6 +94,8 @@ def main():
             deadline = time.monotonic() + 180
             while True:
                 try:
+                    # Public info also exists on the temporary setup server; wait for the real API.
+                    api("GET", "/Startup/User")
                     info = api("GET", "/System/Info/Public")
                     break
                 except OSError:
@@ -101,7 +103,6 @@ def main():
                         raise RuntimeError("Jellyfin did not become ready") from None
                     time.sleep(2)
             assert info["Version"] == "13.0.0" and info["StartupWizardCompleted"] is False
-            api("GET", "/Startup/User")
             api("POST", "/Startup/User", {"Name": "docker-smoke", "Password": auth_password})
             login = api("POST", "/Users/AuthenticateByName", {"Username": "docker-smoke", "Pw": auth_password})
             token = login["AccessToken"]
