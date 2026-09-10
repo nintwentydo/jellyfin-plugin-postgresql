@@ -1,11 +1,19 @@
 <Project>
     <PropertyGroup>
+        <!-- Keep source projects outside this solution in the configuration used by restore. -->
+        <ShouldUnsetParentConfigurationAndPlatform>false</ShouldUnsetParentConfigurationAndPlatform>
         <!-- This plugin uses the restore hook in the released Jellyfin fork. -->
         <JellyfinSourceRoot Condition="'$(JellyfinSourceRoot)' == ''">$(MSBuildThisFileDirectory).jellyfin-core</JellyfinSourceRoot>
         <Version>0.0.0.0</Version>
         <AssemblyVersion>0.0.0.0</AssemblyVersion>
         <FileVersion>0.0.0.0</FileVersion>
     </PropertyGroup>
+    <!-- Jellyfin has its own build props, so forward this to its transitive references too. -->
+    <ItemDefinitionGroup>
+        <ProjectReference>
+            <AdditionalProperties>ShouldUnsetParentConfigurationAndPlatform=false</AdditionalProperties>
+        </ProjectReference>
+    </ItemDefinitionGroup>
     <Target Name="RequireJellyfinSource" BeforeTargets="PrepareForBuild;CollectPackageReferences">
         <Error Condition="!Exists('$(JellyfinSourceRoot)/MediaBrowser.Controller/MediaBrowser.Controller.csproj')"
                Text="Check out the pinned Jellyfin fork into .jellyfin-core (see docs/development.md), or set JellyfinSourceRoot to that checkout." />
