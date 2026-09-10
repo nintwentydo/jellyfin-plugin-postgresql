@@ -17,7 +17,7 @@ services:
       start_period: 30s
 
   jellyfin:
-    image: ghcr.io/nintwentydo/jellyfin-postgres:latest
+    image: ghcr.io/nintwentydo/jellyfin-postgres:1.1.4.0-jf12.0.0-nintwentydo.1
     restart: unless-stopped
     ports:
       - "8096:8096"

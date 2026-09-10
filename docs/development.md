@@ -4,13 +4,18 @@
 
 ## Build and test
 
-Install the **.NET 10 SDK**, then run from the repository root:
+Install the **.NET 10 SDK** and check out the exact source used by the released base image, then run from the repository root:
 
 ```sh
+git clone --no-checkout https://github.com/nintwentydo/jellyfin.git .jellyfin-core
+git -C .jellyfin-core checkout --detach fd3c85888d100f3a609d11a68bfee736b9b5b0c5
 dotnet build
 dotnet test
 sh docker/test-entrypoint.sh
+python3 docker/test-stage-plugin.py
 ```
+
+The source commit is the `v12.0.0-nintwentydo.1` release. `.jellyfin-core/` is ignored by Git and Docker. `JellyfinSourceRoot` can point to an existing checkout of that commit instead. Plugin, tests, packaging and CodeQL all use these source references; stock NuGet packages do not contain the required interface hook.
 
 Without `JELLYFIN_POSTGRES_TEST_CONNECTION`, the .NET tests inspect the EF model, generated SQL, connection defaults, and registered services; the database integration tests are skipped. The shell check exercises the entrypoint in a temporary directory and needs no Docker daemon.
 
@@ -32,7 +37,7 @@ JELLYFIN_POSTGRES_TEST_CONNECTION='Host=localhost;Port=5432;Database=postgres;Us
 dotnet test
 ```
 
-The non-UTC timezone exercises UTC, Local and Unspecified dates across summer and winter, including nullable/required columns and query parameters. An invalid supplied connection fails the integration tests instead of skipping them. The suite also checks overlapping UserData inserts, composite-key isolation, ordinary constraint failures, synchronous lock waiting, cancellation and native SQL backup/recovery. These tests use EF contexts directly; they do not start Jellyfin, prove cache/preference preservation in core save paths, or validate built-in ZIP restore. Verify startup, scans, and playback flows against a disposable Jellyfin/PostgreSQL installation before releasing provider changes.
+The non-UTC timezone exercises UTC, Local and Unspecified dates across summer and winter, including nullable/required columns and query parameters. An invalid supplied connection fails the integration tests instead of skipping them. The suite also checks overlapping UserData inserts, composite-key isolation, ordinary constraint failures, synchronous lock waiting, cancellation and native SQL backup/recovery. Six generated-ID restore regressions cover populated and empty tables, quoted and dotted identifiers, custom increments and sequence ownership, rollback after failure, and the required transaction. These tests use EF contexts directly; they do not start Jellyfin, prove cache/preference preservation in core save paths, or validate built-in ZIP restore. Verify startup, scans, and playback flows against a disposable Jellyfin/PostgreSQL installation before releasing provider changes.
 
 The [test workflow](../.github/workflows/test.yaml) runs a PostgreSQL 15, 16, 17 and 18 matrix with this restricted test role, matching client tools, and the pending-model check below. Each database requires verified TLS and a client certificate. Npgsql uses an encrypted PFX; `pg_dump` and `psql` use separate PEM certificate/key files. Tests cover successful native recovery and rejection of an untrusted CA, incorrect hostname and missing native client certificate.
 
@@ -76,12 +81,13 @@ The repository currently has one `InitialCreate` migration. Review generated cha
 
 ## Releases
 
-1. Keep Jellyfin package versions aligned in the plugin and test projects, and match `JELLYFIN_TAG` in [docker/Dockerfile](../docker/Dockerfile).
-2. Run the checks above. Bump the four-part version and changelog in [build.yaml](../build.yaml).
-3. Commit and publish a GitHub release with a tag matching that version.
+The candidate is **1.1.4.0**, paired with **Jellyfin v12.0.0-nintwentydo.1**. It remains ABI `12.0.0.0`, but requires the fork's restore hook. This release does not update the existing `manifest.json` catalogue or Docker `latest` tag. GitHub marks it as a prerelease so catalogue generators that exclude prereleases also leave it out.
 
-The [release workflow](../.github/workflows/release.yaml) packages the plugin, attaches the ZIP and checksum, builds both Docker architectures, publishes versioned and `latest` image tags, and updates `manifest.json`. Pre-releases are excluded.
+1. Review the version and changelog in [build.yaml](../build.yaml), [release notes](release-notes.md), the source commit in [checkout-core](../.github/actions/checkout-core/action.yml), and the matching image digest in [Dockerfile](../docker/Dockerfile). Commit the complete recipe before tagging.
+2. Push the review branch and manually run **Release Plugin** with **publish unchecked**. This packages one plugin ZIP, runs the PostgreSQL 15–18 TLS suite and migration-model check, and runs CodeQL. Both native Linux runners then build the image from that same ZIP and check the active plugin, payload hashes, PostgreSQL tools, authenticated persistence across restart, a real ZIP restore followed by a generated-ID insert, and direct/HLS decoding of generated test media. Validation-only runs publish no release or container image.
+3. Before publication, test an upgrade of a disposable copy of the populated database and Jellyfin files from the version you actually use. Check users, libraries, preferences, scans and playback; retain a matched database/files backup for rollback. The fresh-install image checks do not establish populated upgrade safety, and the provider rollback tests do not establish filesystem rollback during ZIP restore.
+4. Create and push a tag matching `build.yaml` (`1.1.4.0`, optionally prefixed with `v`). Run **Release Plugin** on that tag with **publish checked**. It repeats validation, pushes each tested architecture under a unique candidate tag, joins their digests into the versioned image tag, and creates the GitHub prerelease with the shared ZIP, checksums and provenance. Existing versioned image tags are refused; a changed image needs a new plugin version.
 
-Publication requires the existing test workflow to pass for the release commit and the tag to match `build.yaml` (an optional `v` prefix is accepted). Manual workflow runs must select that tag; branch runs fail before packaging or publication.
+A failed architecture prevents the shared tag and GitHub release. If publication fails after the shared image tag was created, inspect the run and finish attaching that run's tested assets manually; do not rebuild over the tag. Run-specific candidate image tags may remain after failed publication runs.
 
-Only the three DLLs listed in `build.yaml` are shipped. Jellyfin supplies the other runtime assemblies; do not distribute the entire build directory. For local image builds, see [Docker](docker.md#build-the-image).
+Only the three DLLs listed in `build.yaml`, plus `meta.json`, are shipped. Jellyfin supplies the other runtime assemblies; do not distribute the entire build directory. For local image builds, see [Docker](docker.md#build-the-image).

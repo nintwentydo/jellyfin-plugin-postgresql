@@ -12,6 +12,7 @@ on:
   schedule:
     - cron: '24 2 * * 4'
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   actions: read
@@ -19,7 +20,20 @@ permissions:
   security-events: write
 
 jobs:
-  call:
-    uses: jellyfin/jellyfin-meta-plugins/.github/workflows/scan-codeql.yaml@master
-    with:
-      repository-name: nintwentydo/jellyfin-plugin-postgresql
+  analyze:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/checkout-core
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      # Build dependencies first, then trace only this repository's rebuild.
+      - run: dotnet build --configuration Release
+      - uses: github/codeql-action/init@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28 # v4.37.8
+        with:
+          languages: csharp
+          build-mode: manual
+          queries: security-and-quality
+      - run: dotnet build --configuration Release --no-restore --no-dependencies -t:Rebuild
+      - uses: github/codeql-action/analyze@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28 # v4.37.8

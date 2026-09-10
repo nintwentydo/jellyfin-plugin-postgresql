@@ -12,10 +12,31 @@ on:
     paths-ignore:
       - '**/*.md'
   workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
 
 jobs:
-  call:
-    uses: jellyfin/jellyfin-meta-plugins/.github/workflows/build.yaml@master
-    with:
-      dotnet-version: "10.0.x"
-      dotnet-target: "net10.0"
+  plugin:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/checkout-core
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Package plugin
+        id: package
+        uses: oddstr13/jellyfin-plugin-repository-manager@9497a0a499416cc572ed2e07a391d9f943a37b4d # v1.1.1
+        with:
+          dotnet-target: "net10.0"
+      - name: Verify release payload
+        env:
+          PLUGIN_ZIP: ${{ steps.package.outputs.artifact }}
+        run: python3 docker/stage-plugin.py "$PLUGIN_ZIP"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plugin-package
+          path: ${{ steps.package.outputs.artifact }}
+          if-no-files-found: error

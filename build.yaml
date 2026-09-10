@@ -1,14 +1,15 @@
 ---
 name: "PostgreSQL"
 guid: "7baa1c73-ffc3-4613-a173-51dbd085c4f5"
-version: "1.1.2.2"
+version: "1.1.4.0"
 targetAbi: "12.0.0.0"
 framework: "net10.0"
 overview: "Run Jellyfin's database on PostgreSQL"
 description: >
   Replaces Jellyfin's built-in SQLite database with PostgreSQL for a single
   Jellyfin server. Requires a fresh database; there is no in-place
-  migration from an existing SQLite library.
+  migration from an existing SQLite library. Requires the nintwentydo Jellyfin
+  v12.0.0-nintwentydo.1 fork; stock Jellyfin 12 is not compatible.
 category: "General"
 owner: "nintwentydo"
 artifacts:
@@ -16,6 +17,9 @@ artifacts:
 - "Npgsql.dll"
 - "Npgsql.EntityFrameworkCore.PostgreSQL.dll"
 changelog: >
+  Complete built-in ZIP database restores by reconciling generated PostgreSQL
+  IDs inside the restore transaction, with six regression tests. Build against
+  the released Jellyfin v12.0.0-nintwentydo.1 fork and use its pinned Docker image.
   Harden native PostgreSQL migration recovery with transactional restores,
   missing-backup errors and subprocess cancellation. Forward compatible TLS
   settings to PostgreSQL client tools, require a matching pg_dump major version

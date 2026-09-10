@@ -1,0 +1,11 @@
+name: Checkout released Jellyfin fork
+description: Match the source references to the pinned Docker base release.
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v4
+      with:
+        repository: nintwentydo/jellyfin
+        ref: fd3c85888d100f3a609d11a68bfee736b9b5b0c5 # v12.0.0-nintwentydo.1
+        path: .jellyfin-core
+        persist-credentials: false

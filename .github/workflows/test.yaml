@@ -15,10 +15,15 @@ on:
   workflow_call:
 
 jobs:
-  call:
-    uses: jellyfin/jellyfin-meta-plugins/.github/workflows/test.yaml@master
-    with:
-      dotnet-version: "10.0.x"
+  unit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/checkout-core
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - run: dotnet test
 
   entrypoint:
     name: Docker entrypoint
@@ -26,6 +31,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: sh docker/test-entrypoint.sh
+      - run: python3 docker/test-stage-plugin.py
+      - run: python3 -m py_compile docker/smoke-test.py
 
   postgres:
     name: PostgreSQL ${{ matrix.postgres }} integration with TLS
@@ -50,6 +57,7 @@ jobs:
           --health-retries 10
     steps:
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/checkout-core
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
@@ -69,7 +77,7 @@ jobs:
       - name: Create non-superuser test role
         env:
           PGHOST: 127.0.0.1
-          PGPORT: ${{ job.services.postgres.ports[5432] }}
+          PGPORT: ${{ job.services.postgres.ports['5432'] }}
           PGUSER: postgres
           PGPASSWORD: postgres
           PGDATABASE: postgres
@@ -85,7 +93,7 @@ jobs:
           dotnet tool run dotnet-ef migrations has-pending-model-changes --project Jellyfin.Plugin.Postgresql --configuration Release
       - name: Test against PostgreSQL
         env:
-          JELLYFIN_POSTGRES_TEST_CONNECTION: Host=localhost;Port=${{ job.services.postgres.ports[5432] }};Database=postgres;Username=jellyfin_test;Password=jellyfin_test;SSL Mode=VerifyFull;Root Certificate=${{ runner.temp }}/postgres-tls/ca.crt;SSL Certificate=${{ runner.temp }}/postgres-tls/client.pfx;SSL Password=test-client-key
+          JELLYFIN_POSTGRES_TEST_CONNECTION: Host=localhost;Port=${{ job.services.postgres.ports['5432'] }};Database=postgres;Username=jellyfin_test;Password=jellyfin_test;SSL Mode=VerifyFull;Root Certificate=${{ runner.temp }}/postgres-tls/ca.crt;SSL Certificate=${{ runner.temp }}/postgres-tls/client.pfx;SSL Password=test-client-key
           JELLYFIN_POSTGRES_TEST_TLS_DIRECTORY: ${{ runner.temp }}/postgres-tls
           PGSSLCERT: ${{ runner.temp }}/postgres-tls/client.crt
           PGSSLKEY: ${{ runner.temp }}/postgres-tls/client.key

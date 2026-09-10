@@ -5,3 +5,5 @@ obj/
 artifacts
 scratchpad/
 docker/plugin/
+.jellyfin-core/
+__pycache__/

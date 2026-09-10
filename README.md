@@ -5,9 +5,11 @@ Plugin to replace Jellyfin's SQLite database with PostgreSQL. Install the plugin
 **Fresh installs only**. There is no SQLite migration tool implemented in this project and I don't know if I'll provide one. This is a hobby project.
 
 ## Requirements
-- Jellyfin 12
+- [Jellyfin v12.0.0-nintwentydo.1](https://github.com/nintwentydo/jellyfin/releases/tag/v12.0.0-nintwentydo.1)*
 - PostgreSQL 15–18
 - `pg_dump` and `psql` matching the server's major version on Jellyfin's `PATH` for migration backup and recovery. The bundled Docker image includes version 18; [build with a matching `PG_MAJOR`](docs/docker.md#build-the-image) for an older server.
+
+* Restore completion hook was added to my jellyfin fork which plugin version 1.1.4.0 relies on. Will switch back to normal jellyfin releases if merged.
 
 ## Install
 
@@ -28,7 +30,7 @@ Use [the Docker setup guide](docs/docker.md) and [example Compose file](docker/c
 3. Save [the database configuration](docs/configuration.md#databasexml) as `database.xml` in Jellyfin's configuration directory. Set the connection details and install the client tools above.
 4. Start Jellyfin. It creates the schema automatically. Finish setup in the web interface.
 
-The plugin must be on disk before Jellyfin starts with PostgreSQL selected. To install through the dashboard instead, start a fresh instance on SQLite, add [this plugin repository](https://raw.githubusercontent.com/nintwentydo/jellyfin-plugin-postgresql/master/manifest.json), and install PostgreSQL. Then stop Jellyfin and follow steps 3–4. This does not migrate the SQLite database.
+The plugin must be on disk before Jellyfin starts with PostgreSQL selected. Install this release from its ZIP or bundled Docker image. The existing `manifest.json` catalogue is kept for earlier stock-compatible releases: Jellyfin's ABI check cannot distinguish this fork from stock Jellyfin 12, so it cannot safely offer this update.
 
 ## Guides
 

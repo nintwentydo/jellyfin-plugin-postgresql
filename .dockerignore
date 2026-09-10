@@ -1,0 +1,7 @@
+**
+!docker/
+!docker/Dockerfile
+!docker/database.xml
+!docker/entrypoint.sh
+!docker/plugin/
+!docker/plugin/**

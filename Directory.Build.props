@@ -1,7 +1,13 @@
 <Project>
     <PropertyGroup>
+        <!-- This plugin uses the restore hook in the released Jellyfin fork. -->
+        <JellyfinSourceRoot Condition="'$(JellyfinSourceRoot)' == ''">$(MSBuildThisFileDirectory).jellyfin-core</JellyfinSourceRoot>
         <Version>0.0.0.0</Version>
         <AssemblyVersion>0.0.0.0</AssemblyVersion>
         <FileVersion>0.0.0.0</FileVersion>
     </PropertyGroup>
+    <Target Name="RequireJellyfinSource" BeforeTargets="PrepareForBuild;CollectPackageReferences">
+        <Error Condition="!Exists('$(JellyfinSourceRoot)/MediaBrowser.Controller/MediaBrowser.Controller.csproj')"
+               Text="Check out the pinned Jellyfin fork into .jellyfin-core (see docs/development.md), or set JellyfinSourceRoot to that checkout." />
+    </Target>
 </Project>

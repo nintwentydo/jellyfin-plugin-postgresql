@@ -13,6 +13,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Query;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.EntityFrameworkCore.Update;
 using Microsoft.Extensions.Logging;
 using Npgsql;
@@ -226,6 +227,75 @@ public sealed partial class PostgresqlDatabaseProvider : IJellyfinDatabaseProvid
 #pragma warning restore EF1002
 
         LogPurged(quoted.Count);
+    }
+
+    /// <summary>
+    /// Advances owned sequences after Jellyfin restores rows with explicit IDs.
+    /// </summary>
+    /// <param name="dbContext">The context owning the active import transaction.</param>
+    /// <param name="cancellationToken">The token to cancel the operation.</param>
+    /// <returns>A task representing sequence reconciliation.</returns>
+    async Task IJellyfinDatabaseProvider.CompleteDatabaseRestoreAsync(JellyfinDbContext dbContext, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(dbContext);
+        cancellationToken.ThrowIfCancellationRequested();
+        var transaction = dbContext.Database.CurrentTransaction
+            ?? throw new InvalidOperationException("Database restore completion requires an active import transaction.");
+        var sqlHelper = dbContext.GetService<ISqlGenerationHelper>();
+        var tables = dbContext.Model.GetEntityTypes()
+            .Select(entity => entity.GetTableName() is { } tableName
+                ? sqlHelper.DelimitIdentifier(tableName, entity.GetSchema())
+                : null)
+            .OfType<string>()
+            .Distinct()
+            .ToArray();
+        var sequences = new List<(string Name, string Table, string Column, long Start, long Increment)>();
+        var command = dbContext.Database.GetDbConnection().CreateCommand();
+        await using (command.ConfigureAwait(false))
+        {
+            command.Transaction = transaction.GetDbTransaction();
+            command.CommandText = """
+                SELECT format('%I.%I', sn.nspname, s.relname),
+                       format('%I.%I', tn.nspname, t.relname), quote_ident(a.attname),
+                       q.seqstart, q.seqincrement
+                FROM pg_depend d
+                JOIN pg_sequence q ON q.seqrelid = d.objid
+                JOIN pg_class s ON s.oid = q.seqrelid
+                JOIN pg_namespace sn ON sn.oid = s.relnamespace
+                JOIN pg_class t ON t.oid = d.refobjid
+                JOIN pg_namespace tn ON tn.oid = t.relnamespace
+                JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = d.refobjsubid
+                WHERE d.classid = 'pg_class'::regclass AND d.refclassid = 'pg_class'::regclass
+                  AND d.deptype IN ('a', 'i')
+                  AND t.oid IN (SELECT to_regclass(name) FROM unnest(@tables) AS name)
+                ORDER BY sn.nspname, s.relname
+                """;
+            var parameter = command.CreateParameter();
+            parameter.ParameterName = "tables";
+            parameter.Value = tables;
+            command.Parameters.Add(parameter);
+            var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            await using (reader.ConfigureAwait(false))
+            {
+                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    sequences.Add((reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetInt64(3), reader.GetInt64(4)));
+                }
+            }
+        }
+
+        foreach (var sequence in sequences)
+        {
+            var aggregate = sequence.Increment > 0 ? "MAX" : "MIN";
+            var clamp = sequence.Increment > 0 ? "GREATEST" : "LEAST";
+            var sql = FormattableString.Invariant($"SELECT {clamp}(COALESCE({aggregate}({sequence.Column})::numeric + {sequence.Increment}, {sequence.Start}), {sequence.Start}) AS \"Value\" FROM {sequence.Table}");
+#pragma warning disable EF1002 // Identifiers are quoted by PostgreSQL; numeric sequence metadata is formatted invariantly.
+            var next = await dbContext.Database.SqlQueryRaw<decimal>(sql).SingleAsync(cancellationToken).ConfigureAwait(false);
+            // Unlike setval, RESTART rolls back with the imported rows if any later completion step fails.
+            await dbContext.Database.ExecuteSqlRawAsync(
+                FormattableString.Invariant($"ALTER SEQUENCE {sequence.Name} RESTART WITH {next}"), cancellationToken).ConfigureAwait(false);
+#pragma warning restore EF1002
+        }
     }
 
     /// <summary>

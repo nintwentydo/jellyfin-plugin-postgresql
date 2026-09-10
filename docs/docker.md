@@ -2,7 +2,7 @@
 
 [Back to README](../README.md)
 
-`ghcr.io/nintwentydo/jellyfin-postgres` extends the official Jellyfin image with the plugin and PostgreSQL client tools. Release images support `linux/amd64` and `linux/arm64`.
+`ghcr.io/nintwentydo/jellyfin-postgres` extends the released `ghcr.io/nintwentydo/jellyfin:12.0.0-nintwentydo.1` fork image (pinned by digest) with the plugin and PostgreSQL client tools. Release images support `linux/amd64` and `linux/arm64`.
 
 ## Start a new server
 
@@ -29,10 +29,10 @@ To use an existing PostgreSQL server, remove the `postgres` service and Jellyfin
 
 ## Image versions
 
-The example uses `latest`. To control upgrades, choose a version tag from the [published images](https://github.com/nintwentydo/jellyfin-plugin-postgresql/pkgs/container/jellyfin-postgres):
+The example selects the 1.1.4.0 candidate; it becomes available after publication. This fork release leaves `latest` unchanged. Version tags in the [published images](https://github.com/nintwentydo/jellyfin-plugin-postgresql/pkgs/container/jellyfin-postgres) identify both the plugin and Jellyfin build:
 
 ```text
-ghcr.io/nintwentydo/jellyfin-postgres:<plugin-version>-jf<jellyfin-version>
+ghcr.io/nintwentydo/jellyfin-postgres:1.1.4.0-jf12.0.0-nintwentydo.1
 ```
 
 The tag identifies both versions. Upgrade the bundled plugin by changing the image tag; dashboard updates are replaced on the next container start. See [upgrading](operations.md#upgrading).
@@ -49,18 +49,19 @@ To run Jellyfin with `user: "1000:1000"`, make `/config` and `/cache` writable b
 
 ## Build the image
 
-From the repository root, extract a release ZIP into `docker/plugin/`, then run:
+From the repository root, stage the release ZIP matching `build.yaml` into a new `docker/plugin/` directory, then run:
 
 ```sh
-docker build -f docker/Dockerfile -t jellyfin-postgres .
+python3 docker/stage-plugin.py /path/to/postgresql_1.1.4.0.zip
+docker build -f docker/Dockerfile --build-arg PLUGIN_VERSION=1.1.4.0 -t jellyfin-postgres .
 ```
 
-Build arguments are `JELLYFIN_TAG` (default `12.0`) and `PG_MAJOR` (default `18`). Match the Jellyfin tag to the plugin build and the client tools to your PostgreSQL server.
+The default `JELLYFIN_BASE` is the released fork image with its immutable multiarch digest. Keep it matched to the source used to build the plugin. `PG_MAJOR` defaults to `18`; match the client tools to your PostgreSQL server. `PLUGIN_VERSION` and `PLUGIN_REVISION` label the plugin build. The Dockerfile adds only the plugin, client tools and entrypoint; it does not rebuild or replace Jellyfin.
 
 For example, to use PostgreSQL 16:
 
 ```sh
-docker build -f docker/Dockerfile --build-arg PG_MAJOR=16 -t jellyfin-postgres:pg16 .
+docker build -f docker/Dockerfile --build-arg PLUGIN_VERSION=1.1.4.0 --build-arg PG_MAJOR=16 -t jellyfin-postgres:pg16 .
 ```
 
 Use that locally built image in Compose. A newer `pg_dump` can read an older server, but its output is not guaranteed to restore to that older version; migration recovery requires both directions. See the [PostgreSQL compatibility notes](https://www.postgresql.org/docs/18/app-pgdump.html).

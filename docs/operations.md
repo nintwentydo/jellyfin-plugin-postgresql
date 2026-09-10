@@ -38,13 +38,15 @@ Before schema migrations, the provider makes a temporary SQL dump in Jellyfin's 
 
 Install `pg_dump` and `psql` matching the database server's major version. A successful dump from a newer client does not establish that it can be restored to an older server. The provider checks the `pg_dump` major version before creating a migration backup and rejects a mismatch, allowing core to stop before migrating. The default Docker image bundles version 18; use the [matching `PG_MAJOR` build argument](docker.md#build-the-image) for older supported servers.
 
-Jellyfin's built-in ZIP backup uses a separate JSON database import path. PostgreSQL restore through that path remains unvalidated: core changes are needed for atomic import and provider-specific identity-sequence completion. Use a tested PostgreSQL dump plus the corresponding Jellyfin files for recovery until those changes are available and verified. The native SQL recovery tests do not establish built-in ZIP restore support.
+Jellyfin's built-in ZIP backup uses a separate JSON database import path. The `v12.0.0-nintwentydo.1` fork imports database rows in one transaction and calls this plugin's completion hook before committing. The hook reconciles generated PostgreSQL IDs with the restored rows; a failure rolls back the imported rows and sequence restarts. The release workflow checks an actual ZIP restore and a subsequent generated-ID insert on both image architectures.
+
+ZIP restore still does not roll back copied filesystem content if the database import fails, and the core ZIP format does not include `HomeSections`. Keep a tested PostgreSQL dump and the matching Jellyfin files for complete recovery. Provider regression tests alone do not prove the full server restore path.
 
 Built-in backup transactions hold the [transaction lock](behaviour.md#transaction-locking); schedule them during quiet periods. Native `pg_dump` does not acquire the provider's advisory lock.
 
 ## Upgrading
 
-Take a backup first. Match the plugin release to your Jellyfin version, including any release-candidate suffix; the `12.0.0.0` ABI value alone does not identify an exact build.
+Take a backup of the database and Jellyfin files first. Plugin 1.1.4.0 requires Jellyfin `v12.0.0-nintwentydo.1`; upgrade the server and plugin together. The `12.0.0.0` ABI value cannot distinguish the fork from stock Jellyfin. Test a populated copy before upgrading your server, including when moving from the previous custom Jellyfin 13 pair. Keep the previous image/plugin and matching backups for rollback.
 
 **Docker:** choose the new version tag in `compose.yml`, then run:
 

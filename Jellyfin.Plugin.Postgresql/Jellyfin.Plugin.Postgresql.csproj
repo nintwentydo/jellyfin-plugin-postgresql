@@ -15,12 +15,12 @@
     EF Core beside it would be asking for an assembly conflict, so `artifacts` in build.yaml names
     the small set that actually gets packaged. They stay in the local build output because
     `dotnet ef` reflects over it to scaffold migrations. Versions track the server release in
-    build.yaml — a mismatch here surfaces as a model that does not match the running schema.
+    build.yaml. Jellyfin comes from the pinned fork because stock 12 lacks the restore hook.
   -->
   <ItemGroup>
-    <PackageReference Include="Jellyfin.Controller" Version="12.0.0" PrivateAssets="all" />
-    <PackageReference Include="Jellyfin.Model" Version="12.0.0" PrivateAssets="all" />
-    <PackageReference Include="Jellyfin.Database.Implementations" Version="12.0.0" PrivateAssets="all" />
+    <ProjectReference Include="$(JellyfinSourceRoot)/MediaBrowser.Controller/MediaBrowser.Controller.csproj" PrivateAssets="all" />
+    <ProjectReference Include="$(JellyfinSourceRoot)/MediaBrowser.Model/MediaBrowser.Model.csproj" PrivateAssets="all" />
+    <ProjectReference Include="$(JellyfinSourceRoot)/src/Jellyfin.Database/Jellyfin.Database.Implementations/Jellyfin.Database.Implementations.csproj" PrivateAssets="all" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.11" PrivateAssets="all" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.11" PrivateAssets="all" />
   </ItemGroup>

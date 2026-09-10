@@ -1,116 +1,201 @@
 name: '📦 Release Plugin'
 
-# Process: bump version in build.yaml, commit, create github release with tag matching version
-# Builds the plugin with JPRM, attaches plugin and md5 to release, regenerates manifest.json, publishes docker package
-
 on:
-  release:
-    types:
-      - released
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the tested candidate (select its matching version tag)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
+# Serialize publication, including re-runs, so a version tag cannot be replaced.
+concurrency:
+  group: plugin-release
+  cancel-in-progress: false
+
 jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      image: ${{ steps.release.outputs.image }}
+      image_tag: ${{ steps.release.outputs.image_tag }}
+      revision: ${{ steps.release.outputs.revision }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate release metadata
+        id: release
+        env:
+          PUBLISH: ${{ inputs.publish }}
+        run: |
+          version=$(sed -nE 's/^version: "([0-9]+(\.[0-9]+){3})"$/\1/p' build.yaml)
+          base=$(sed -n 's/^ARG JELLYFIN_BASE=//p' docker/Dockerfile)
+          test -n "$version"
+          test -n "$base"
+          jellyfin=${base#*:}
+          jellyfin=${jellyfin%@*}
+          if [ "$PUBLISH" = true ]; then
+            case "$GITHUB_REF" in
+              "refs/tags/$version"|"refs/tags/v$version") ;;
+              *) echo "::error::Publication requires a tag matching build.yaml (optional v prefix)."; exit 1 ;;
+            esac
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/$GITHUB_REPOSITORY_OWNER/jellyfin-postgres" | tr '[:upper:]' '[:lower:]' >> "$GITHUB_OUTPUT"
+          echo "image_tag=${version}-jf${jellyfin}" >> "$GITHUB_OUTPUT"
+          echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
   tests:
+    needs: validate
     uses: ./.github/workflows/test.yaml
 
-  release:
-    needs: tests
+  codeql:
+    needs: validate
     permissions:
-      contents: write
+      actions: read
+      contents: read
+      security-events: write
+    uses: ./.github/workflows/scan-codeql.yaml
+
+  build:
+    needs: validate
+    uses: ./.github/workflows/build.yaml
+
+  images:
+    name: Native ${{ matrix.architecture }} image
+    needs: [validate, tests, codeql, build]
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
       packages: write
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: amd64
+            runner: ubuntu-24.04
+          - architecture: arm64
+            runner: ubuntu-24.04-arm
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Validate release and image tags
-        id: imgtag
-        run: |
-          case "$GITHUB_REF" in
-            refs/tags/*) release_tag=${GITHUB_REF#refs/tags/} ;;
-            *) echo "::error::Release workflows must run on a tag, including manual dispatches."; exit 1 ;;
-          esac
-          plugin=$(sed -nE 's/^version: *"?([0-9]+(\.[0-9]+){3})"?[[:space:]]*$/\1/p' build.yaml)
-          jellyfin=$(sed -n 's/^ARG JELLYFIN_TAG=\(.*\)/\1/p' docker/Dockerfile | head -1)
-          test -n "$plugin"
-          test -n "$jellyfin"
-          if [ "${release_tag#v}" != "$plugin" ]; then
-            echo "::error::Release tag must match the version in build.yaml (an optional v prefix is allowed)."
-            exit 1
-          fi
-          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
-          echo "plugin=$plugin" >> "$GITHUB_OUTPUT"
-          echo "tag=${plugin}-jf${jellyfin}" >> "$GITHUB_OUTPUT"
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
         with:
-          dotnet-version: "10.0.x"
-
-      - name: Build plugin zip
-        id: jprm
-        uses: oddstr13/jellyfin-plugin-repository-manager@9497a0a499416cc572ed2e07a391d9f943a37b4d # v1.1.1
-        with:
-          dotnet-target: "net10.0"
-
-      - name: Generate md5 checksum
-        run: |
-          zip="${{ steps.jprm.outputs.artifact }}"
-          md5sum "$zip" > "$zip.md5"
-
-      - name: Attach zip and checksum to the release
-        uses: softprops/action-gh-release@50195ba7f6f93d1ac97ba8332a178e008ad176aa
-        with:
-          fail_on_unmatched_files: true
-          tag_name: ${{ steps.imgtag.outputs.release_tag }}
-          files: |
-            ${{ steps.jprm.outputs.artifact }}
-            ${{ steps.jprm.outputs.artifact }}.md5
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # Reuses the zip JPRM just built, so build.yaml stays the only place that
-      # lists which assemblies ship.
-      - name: Stage the plugin for the Docker image
-        run: unzip -q "${{ steps.jprm.outputs.artifact }}" -d docker/plugin
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push the image
+          name: plugin-package
+          path: release
+      - name: Stage the shared plugin package
+        run: python3 docker/stage-plugin.py release/*.zip
+      - uses: docker/setup-buildx-action@v3
+      - name: Build candidate
         uses: docker/build-push-action@v6
         with:
           context: .
           file: docker/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
+          platforms: linux/${{ matrix.architecture }}
+          load: true
+          push: false
+          tags: jellyfin-postgres:candidate
           build-args: |
-            PLUGIN_VERSION=${{ steps.imgtag.outputs.plugin }}
-          # Compound tag is the canonical immutable one. A plain plugin version
-          # could not express the same plugin rebuilt against a newer Jellyfin,
-          # and targetAbi cannot either: every 12.0 RC reports 12.0.0.0.
-          tags: |
-            ghcr.io/${{ github.repository_owner }}/jellyfin-postgres:${{ steps.imgtag.outputs.tag }}
-            ghcr.io/${{ github.repository_owner }}/jellyfin-postgres:latest
-
-      - name: Regenerate manifest.json on master
-        uses: Kevinjil/jellyfin-plugin-repo-action@a7832ecc44c6b1a45d531970f6647b8682b005b8
+            PLUGIN_VERSION=${{ needs.validate.outputs.version }}
+            PLUGIN_REVISION=${{ needs.validate.outputs.revision }}
+      - name: Test the native candidate
+        run: python3 docker/smoke-test.py jellyfin-postgres:candidate '${{ matrix.architecture }}'
+      - uses: docker/login-action@v3
+        if: inputs.publish
         with:
-          ignorePrereleases: true
-          githubToken: ${{ secrets.GITHUB_TOKEN }}
-          repository: ${{ github.repository }}
-          pagesBranch: master
-          pagesFile: manifest.json
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push the tested image under a run-specific candidate tag
+        if: inputs.publish
+        env:
+          IMAGE: ${{ needs.validate.outputs.image }}
+          ARCH: ${{ matrix.architecture }}
+        run: |
+          candidate="$IMAGE:candidate-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-$ARCH"
+          docker tag jellyfin-postgres:candidate "$candidate"
+          docker push "$candidate"
+          mkdir digests
+          docker image inspect "$candidate" --format '{{range .RepoDigests}}{{println .}}{{end}}' \
+            | grep -F "$IMAGE@" > "digests/$ARCH.txt"
+      - uses: actions/upload-artifact@v4
+        if: inputs.publish
+        with:
+          name: image-digest-${{ matrix.architecture }}
+          path: digests/*.txt
+          if-no-files-found: error
+
+  publish:
+    name: Publish tested fork release
+    if: inputs.publish
+    needs: [validate, images]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      packages: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      IMAGE: ${{ needs.validate.outputs.image }}
+      IMAGE_TAG: ${{ needs.validate.outputs.image_tag }}
+      VERSION: ${{ needs.validate.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: plugin-package
+          path: release
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: image-digest-*
+          path: digests
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Refuse to overwrite a published image tag
+        run: |
+          if docker buildx imagetools inspect "$IMAGE:$IMAGE_TAG" > "$RUNNER_TEMP/manifest.txt" 2>&1; then
+            echo "::error::Image tag already exists; bump the plugin version."
+            exit 1
+          fi
+          # Authentication or network failures must not be mistaken for an absent tag.
+          if ! grep -Eq 'manifest unknown|not found' "$RUNNER_TEMP/manifest.txt"; then
+            cat "$RUNNER_TEMP/manifest.txt"
+            exit 1
+          fi
+      - name: Join only the tested architecture digests
+        run: |
+          for arch in amd64 arm64; do
+            digest=$(cat "digests/$arch.txt")
+            test "${digest%@*}" = "$IMAGE"
+            printf '%s\n' "${digest#*@}" | grep -Eq '^sha256:[0-9a-f]{64}$'
+          done
+          docker buildx imagetools create --tag "$IMAGE:$IMAGE_TAG" \
+            "$(cat digests/amd64.txt)" "$(cat digests/arm64.txt)"
+      - name: Record provenance and checksums
+        run: |
+          cp .github/actions/checkout-core/action.yml release/core-source.yml
+          cp digests/*.txt release/
+          cat > release/SOURCES.txt <<SOURCES
+          Plugin: https://github.com/${GITHUB_REPOSITORY}/commit/${{ needs.validate.outputs.revision }}
+          Core: https://github.com/nintwentydo/jellyfin/commit/fd3c85888d100f3a609d11a68bfee736b9b5b0c5
+          Base image: $(sed -n 's/^ARG JELLYFIN_BASE=//p' docker/Dockerfile)
+          Plugin image: $IMAGE:$IMAGE_TAG
+          Validation: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          SOURCES
+          cd release
+          md5sum ./*.zip > "postgresql_${VERSION}.zip.md5"
+          sha256sum ./*.zip core-source.yml SOURCES.txt amd64.txt arm64.txt > SHA256SUMS
+      - name: Create fork-only prerelease
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" release/* --verify-tag --prerelease --latest=false \
+            --title "PostgreSQL $VERSION for Jellyfin 12.0.0-nintwentydo.1" \
+            --notes-file docs/release-notes.md
