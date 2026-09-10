@@ -33,6 +33,23 @@ def container_hashes(container, directory):
             (line.split(maxsplit=1) for line in output.splitlines())}
 
 
+def scan_library(api):
+    task = next(task for task in api("GET", "/ScheduledTasks") if task["Key"] == "RefreshLibrary")
+    assert task["State"] == "Idle", "Library scan was already running"
+    previous_result = task.get("LastExecutionResult")
+    api("POST", "/ScheduledTasks/Running/" + task["Id"])
+    deadline = time.monotonic() + 180
+    while True:
+        current = api("GET", "/ScheduledTasks/" + task["Id"])
+        result = current.get("LastExecutionResult")
+        if current["State"] == "Idle" and result and result != previous_result:
+            assert result["Status"] == "Completed", f"Library scan failed: {result}"
+            return
+        if time.monotonic() >= deadline:
+            raise TimeoutError(f"Library scan did not complete: {current}")
+        time.sleep(2)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("image")
@@ -155,18 +172,14 @@ def main():
                    "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=24",
                    "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "6",
                    "-c:v", "libx264", "-threads", "2", "-c:a", "aac", "/cache/smoke/Smoke.mp4")
-            api("POST", "/Library/VirtualFolders?name=Smoke&collectionType=movies&paths=/cache/smoke&refreshLibrary=true",
+            api("POST", "/Library/VirtualFolders?name=Smoke&collectionType=movies&paths=/cache/smoke&refreshLibrary=false",
                 {"LibraryOptions": {"EnableRealtimeMonitor": False,
                  "TypeOptions": [{"Type": "Movie", "MetadataFetchers": [], "ImageFetchers": []}]}})
-            deadline = time.monotonic() + 180
-            while True:
-                items = api("GET", "/Items?recursive=true&includeItemTypes=Movie&fields=MediaSources")["Items"]
-                if len(items) == 1 and items[0].get("MediaSources"):
-                    item = items[0]
-                    break
-                if time.monotonic() >= deadline:
-                    raise TimeoutError("Fixture media was not scanned")
-                time.sleep(2)
+            # Media can appear before the scan finishes; backups require the whole task to finish.
+            scan_library(api)
+            items = api("GET", "/Items?recursive=true&includeItemTypes=Movie&fields=MediaSources")["Items"]
+            assert len(items) == 1 and items[0].get("MediaSources"), "Fixture media was not scanned"
+            item = items[0]
 
             # A real ZIP import must restore a deleted row and then generate an ID above its maximum.
             api("POST", "/Auth/Keys?app=restore-smoke")

@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
       - run: sh docker/test-entrypoint.sh
       - run: python3 docker/test-stage-plugin.py
-      - run: python3 -m py_compile docker/smoke-test.py
+      - run: python3 docker/test-smoke-test.py
 
   postgres:
     name: PostgreSQL ${{ matrix.postgres }} integration with TLS
